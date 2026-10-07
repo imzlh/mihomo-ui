@@ -1,0 +1,7 @@
+node_modules
+dist
+clash-verge-rev-dev
+pnpm-lock.yaml
+.verification
+test-results
+api.md

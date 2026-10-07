@@ -1,0 +1,214 @@
+.settings-page {
+  max-width: 1100px;
+}
+.settings-section {
+  margin-bottom: 20px;
+}
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-section > .settings-section-heading {
+  padding: 22px 24px 10px;
+}
+.settings-section-heading > svg:first-child {
+  color: var(--accent, #7462d4);
+}
+.settings-section-heading h2,
+.settings-advanced summary .settings-section-heading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.settings-section .setting-row {
+  margin: 0 24px;
+  padding: 20px 0;
+}
+.settings-section .setting-copy label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.settings-title-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.settings-backend-address {
+  overflow-wrap: anywhere;
+}
+.settings-version {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted, #92909d);
+  font-size: 12px;
+}
+.settings-backend-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+.settings-theme-options {
+  flex-shrink: 0;
+}
+.settings-theme-options button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 82px;
+}
+.settings-select {
+  width: 168px;
+  flex-shrink: 0;
+}
+.settings-port-control {
+  min-width: 168px;
+}
+.settings-inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-inline-controls input {
+  width: 104px;
+}
+.settings-inline-controls .button {
+  min-width: 58px;
+  justify-content: center;
+}
+.settings-core-note {
+  margin: 10px 24px 20px;
+  line-height: 1.75;
+}
+.settings-section > .settings-section-heading + .settings-core-note {
+  margin-bottom: 0;
+}
+.settings-error {
+  color: var(--red, #df5865);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 8px 0 0;
+}
+.settings-advanced {
+  margin-bottom: 20px;
+}
+.settings-advanced summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 23px 24px;
+  border-radius: inherit;
+}
+.settings-advanced summary::-webkit-details-marker {
+  display: none;
+}
+.settings-advanced summary:focus-visible {
+  outline: 2px solid var(--accent, #7462d4);
+  outline-offset: 3px;
+}
+.settings-expand-icon {
+  transition: transform 0.2s;
+  color: var(--muted, #92909d);
+}
+.settings-advanced[open] .settings-expand-icon {
+  transform: rotate(180deg);
+}
+.settings-advanced-content {
+  padding: 0 24px 22px;
+}
+.settings-advanced-content > p {
+  margin: 0 0 18px;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.settings-yaml-label {
+  display: grid;
+  gap: 9px;
+}
+.settings-yaml-label > span {
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-yaml {
+  width: 100%;
+  resize: vertical;
+  min-height: 180px;
+  padding: 14px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.settings-reload-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding-top: 16px;
+}
+.settings-reload-footer p {
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.6;
+}
+.settings-reload-target {
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.settings-reload-target span {
+  color: var(--muted, #92909d);
+}
+@media (max-width: 700px) {
+  .settings-section > .settings-section-heading {
+    padding: 20px 18px 6px;
+  }
+  .settings-section .setting-row {
+    margin: 0 18px;
+    gap: 16px;
+  }
+  .settings-section:first-of-type .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .settings-backend-actions {
+    flex-wrap: wrap;
+  }
+  .settings-theme-options button {
+    min-width: 0;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .settings-theme-options button svg {
+    display: none;
+  }
+  .settings-select {
+    width: 138px;
+  }
+  .settings-core-note {
+    margin-left: 18px;
+    margin-right: 18px;
+  }
+  .settings-advanced summary {
+    padding: 21px 18px;
+  }
+  .settings-advanced-content {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+@media (max-width: 440px) {
+  .settings-section:nth-of-type(2) .setting-row,
+  .settings-port-row {
+    flex-wrap: wrap;
+  }
+  .settings-reload-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
