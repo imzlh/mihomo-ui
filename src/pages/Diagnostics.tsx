@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge, EmptyState, Modal, PageHeader, Spinner } from '../components/ui';
+import { ConnectivityTests } from '../components/ConnectivityTests';
 import { useTableSort, type SortAccessor } from '../hooks/use-table-sort';
 import type { DnsRecord, DnsResponse } from '../lib/types';
 import { useMihomo } from '../state/mihomo';
@@ -207,7 +208,7 @@ export default function Diagnostics() {
 
   return (
     <div className="page-stack diagnostics-page">
-      <PageHeader title="网络诊断" description="通过内核查询 DNS，查看解析结果与管理缓存。">
+      <PageHeader title="网络诊断" description="测试指定出口的连通性，查询 DNS 与管理内核缓存。">
         {demo && <Badge tone="purple">演示数据</Badge>}
       </PageHeader>
 
@@ -226,6 +227,7 @@ export default function Diagnostics() {
         </div>
       ) : (
         <>
+          <ConnectivityTests />
           {demo && (
             <p className="info-note diagnostics-note">
               下方为本地示例记录，并非实际 DNS 结果。连接内核后即可查询和清理缓存。

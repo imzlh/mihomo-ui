@@ -15,11 +15,14 @@
     "format:check": "prettier --check src tests *.ts *.json *.md *.yaml"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@tanstack/react-query": "^5.90.0",
     "lucide-react": "^0.468.0",
+    "quickjs-emscripten-core": "0.32.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.0"
+    "react-router-dom": "^7.9.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

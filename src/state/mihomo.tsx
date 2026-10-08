@@ -4,15 +4,24 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MihomoClient, normalizeBackendUrl } from '../lib/mihomo';
+import { maintenanceStore } from '../lib/core-maintenance';
+import { connectionsForProxySwitch, switchProxyWithCleanup } from '../lib/proxy-switch';
+import { mergeProxyNodes } from '../lib/proxy-nodes';
+import { PREFERENCES_CHANGED } from '../lib/preference-events';
+import {
+  createConnectionHistory,
+  isConnectionsResponse,
+  reduceConnectionHistory,
+} from '../lib/connection-history';
 import type {
   BackendProfile,
-  ConnectionsResponse,
   ConnectionsSnapshot,
   LogEntry,
   Memory,
@@ -34,6 +43,14 @@ import type { Toast } from '../components/ui';
 
 const storageKey = 'mihomo-verge.backend';
 const emptySnapshot: ConnectionsSnapshot = { connections: [], uploadTotal: 0, downloadTotal: 0 };
+function readCloseOnSwitch(scope: string): boolean {
+  try {
+    return localStorage.getItem(`mihomo-verge.close-on-switch:${scope}`) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function restoreProfile(): BackendProfile | null {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
@@ -58,6 +75,17 @@ function useMihomoState() {
   const queryCache = useQueryClient();
   const [session, setSession] = useState(() => ({ profile: restoreProfile(), id: 0 }));
   const [demo, setDemo] = useState(false);
+  const preferenceScope = demo ? 'demo' : (session.profile?.url ?? 'offline');
+  const storedCloseOnSwitch = useMemo(() => readCloseOnSwitch(preferenceScope), [preferenceScope]);
+  const [closePreference, setClosePreference] = useState({ scope: '', enabled: false });
+  const closeOnSwitch =
+    closePreference.scope === preferenceScope ? closePreference.enabled : storedCloseOnSwitch;
+  useEffect(() => {
+    const sync = () =>
+      setClosePreference({ scope: preferenceScope, enabled: readCloseOnSwitch(preferenceScope) });
+    window.addEventListener(PREFERENCES_CHANGED, sync);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, sync);
+  }, [preferenceScope]);
   const [testing, setTesting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [configDemo, setConfigDemo] = useState(demoConfig);
@@ -65,6 +93,15 @@ function useMihomoState() {
   const [traffic, setTraffic] = useState<Traffic>({ up: 0, down: 0 });
   const [history, setHistory] = useState<Traffic[]>([]);
   const [snapshot, setSnapshot] = useState(emptySnapshot);
+  const [connectionHistoryState, dispatchConnectionHistory] = useReducer(
+    reduceConnectionHistory,
+    undefined,
+    createConnectionHistory,
+  );
+  const [connectionsStream, setConnectionsStream] = useState<{
+    status: 'idle' | 'connecting' | 'open' | 'closed' | 'error' | 'demo';
+    lastSnapshotAt: number | null;
+  }>({ status: 'idle', lastSnapshotAt: null });
   const [memory, setMemory] = useState(0);
   const [logs, setLogs] = useState<Array<LogEntry & { id: number; time: string }>>([]);
   const [live, setLive] = useState(false);
@@ -72,6 +109,7 @@ function useMihomoState() {
   const counter = useRef(0);
   const connectAttempt = useRef(0);
   const connectionAbort = useRef<AbortController | null>(null);
+  const activeSelections = useRef(new Set<string>());
   const toastTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => () => toastTimers.current.forEach(clearTimeout), []);
   const notify = useCallback((text: string, type: Toast['type'] = 'success') => {
@@ -91,6 +129,14 @@ function useMihomoState() {
     () => (session.profile && !demo ? new MihomoClient(session.profile) : null),
     [session.profile, demo],
   );
+  const actionSession = useMemo(() => ({ client, demo }), [client, demo]);
+  const currentActionSession = useRef<typeof actionSession | null>(actionSession);
+  useEffect(() => {
+    currentActionSession.current = actionSession;
+    return () => {
+      currentActionSession.current = null;
+    };
+  }, [actionSession]);
   const key = ['mihomo', session.id];
   const versionQuery = useQuery({
     queryKey: [...key, 'version'],
@@ -133,23 +179,16 @@ function useMihomoState() {
   });
   const proxies = useMemo<Record<string, ProxyNode>>(() => {
     if (demo) return proxiesDemo;
-    const nodes = Object.values(providersQuery.data ?? {}).flatMap((provider) =>
-      provider.proxies.map((node) => [node.name, node] as const),
-    );
-    return { ...Object.fromEntries(nodes), ...proxiesQuery.data?.proxies };
+    return mergeProxyNodes(proxiesQuery.data?.proxies ?? {}, providersQuery.data ?? {});
   }, [demo, proxiesDemo, providersQuery.data, proxiesQuery.data]);
 
   useEffect(() => {
     setTraffic({ up: 0, down: 0 });
     setHistory([]);
-    setSnapshot(emptySnapshot);
     setMemory(0);
-    setLogs([]);
     setLive(false);
     if (demo) {
-      setSnapshot(demoSnapshot);
       setMemory(86_432_100);
-      setLogs(demoLogs);
       setLive(true);
       setHistory(Array.from({ length: 60 }, (_, index) => createDemoTraffic(index)));
       let tick = 60;
@@ -185,10 +224,6 @@ function useMihomoState() {
         },
       ),
       client.subscribe<Memory>('memory', (data) => setMemory(data.inuse)),
-      client.subscribe<ConnectionsResponse>('connections', (data) => {
-        setSnapshot({ ...data, connections: data.connections ?? [] });
-        if (data.memory !== undefined) setMemory(data.memory);
-      }),
       client.subscribe<LogEntry>(
         'logs',
         (data) =>
@@ -203,17 +238,66 @@ function useMihomoState() {
     return () => dispose.forEach((unsubscribe) => unsubscribe());
   }, [client, connected, demo]);
 
+  // A controller change starts a new local observation session. Transient disconnects do not.
+  useEffect(() => {
+    setSnapshot(demo ? demoSnapshot : emptySnapshot);
+    setLogs(demo ? demoLogs : []);
+    dispatchConnectionHistory({ type: 'reset' });
+    setConnectionsStream({ status: demo ? 'demo' : 'idle', lastSnapshotAt: null });
+  }, [client, demo]);
+
+  useEffect(() => {
+    if (demo) return;
+    if (!client || !connected) {
+      dispatchConnectionHistory({ type: 'interrupt' });
+      setConnectionsStream((current) => ({ ...current, status: client ? 'closed' : 'idle' }));
+      return;
+    }
+    const interruptInvalidFrame = () => {
+      dispatchConnectionHistory({ type: 'interrupt' });
+      setConnectionsStream((current) => ({ ...current, status: 'error' }));
+    };
+    return client.subscribe<unknown>(
+      'connections',
+      (data) => {
+        if (!isConnectionsResponse(data)) {
+          interruptInvalidFrame();
+          return;
+        }
+        const observedAt = Date.now();
+        const connections = data.connections ?? [];
+        setSnapshot({ ...data, connections });
+        dispatchConnectionHistory({ type: 'snapshot', connections, observedAt });
+        setConnectionsStream({ status: 'open', lastSnapshotAt: observedAt });
+        if (data.memory !== undefined) setMemory(data.memory);
+      },
+      (status) => {
+        dispatchConnectionHistory({ type: 'interrupt' });
+        setConnectionsStream((current) => ({
+          ...current,
+          // The list becomes live only after the new socket delivers a valid snapshot.
+          status: status === 'open' ? 'connecting' : status,
+        }));
+      },
+      {},
+      interruptInvalidFrame,
+    );
+  }, [client, connected, demo]);
+
   const refresh = async () => {
     await queryCache.invalidateQueries({ queryKey: key });
   };
   const runAction = async (action: () => Promise<unknown>, success?: string): Promise<boolean> => {
     try {
       await action();
+      if (currentActionSession.current !== actionSession) return false;
       await refresh();
+      if (currentActionSession.current !== actionSession) return false;
       if (success) notify(success);
       return true;
     } catch (error) {
-      notify(error instanceof Error ? error.message : '操作失败，请重试', 'error');
+      if (currentActionSession.current === actionSession)
+        notify(error instanceof Error ? error.message : '操作失败，请重试', 'error');
       return false;
     }
   };
@@ -276,14 +360,24 @@ function useMihomoState() {
     setConfigDemo(demoConfig);
     setProxiesDemo(demoProxies);
   };
-  const patchConfig = async (patch: MihomoConfigPatch) => {
+  const patchConfig = async (patch: MihomoConfigPatch): Promise<boolean> => {
     if (demo) {
-      setConfigDemo((current) => ({ ...current, ...patch }));
+      setConfigDemo((current) => ({
+        ...current,
+        ...patch,
+        ...(patch.tun ? { tun: { ...current.tun, ...patch.tun } } : {}),
+      }));
       notify('已更新演示配置', 'info');
-      return;
+      return true;
     }
-    if (client)
-      await runAction(async () => {
+    if (!client) return false;
+    const maintenance = maintenanceStore(client);
+    if (!maintenance.beginConfigWrite()) {
+      notify('内核正在应用配置或执行维护，请稍后重试。', 'info');
+      return false;
+    }
+    try {
+      return await runAction(async () => {
         await client.patchConfigs(patch);
         const actual = await client.configs();
         queryCache.setQueryData([...key, 'config'], actual);
@@ -304,9 +398,60 @@ function useMihomoState() {
             `配置未生效：${mismatches.join('、')}。请检查内核日志中的端口占用或权限错误。`,
           );
       }, '内核配置已应用');
+    } finally {
+      maintenance.endConfigWrite();
+    }
+  };
+  const reloadConfig = async (
+    content: string,
+    onError?: (message: string) => void,
+  ): Promise<boolean> => {
+    if (!client || demo || !connected || !content.trim()) return false;
+    const maintenance = maintenanceStore(client);
+    if (!maintenance.beginConfigWrite()) {
+      const message = '内核正在应用配置或执行维护，请稍后重试。';
+      onError?.(message);
+      notify(message, 'info');
+      return false;
+    }
+    try {
+      return await runAction(async () => {
+        try {
+          await client.reloadConfig(content);
+        } catch (error) {
+          if (currentActionSession.current === actionSession)
+            onError?.(error instanceof Error ? error.message : '重新加载失败，请检查配置内容');
+          throw error;
+        }
+      }, '配置已重新加载');
+    } finally {
+      maintenance.endConfigWrite();
+    }
+  };
+  const setCloseOnSwitch = (enabled: boolean) => {
+    setClosePreference({ scope: preferenceScope, enabled });
+    try {
+      localStorage.setItem(`mihomo-verge.close-on-switch:${preferenceScope}`, String(enabled));
+    } catch {
+      notify('此偏好仅在当前页面会话中生效，浏览器未允许保存', 'info');
+    }
   };
   const selectProxy = async (group: string, name: string) => {
+    const actionKey = JSON.stringify([session.id, demo, group]);
+    if (!connected || activeSelections.current.has(actionKey)) return;
     if (demo) {
+      const previous = proxiesDemo[group]?.now;
+      if (closeOnSwitch && previous && previous !== name) {
+        setSnapshot((current) => {
+          const closing = new Set(
+            connectionsForProxySwitch(current.connections, group, previous).map((item) => item.id),
+          );
+          return {
+            ...current,
+            connections: current.connections.filter((item) => !closing.has(item.id)),
+          };
+        });
+      }
       setProxiesDemo((current) => {
         const node = current[group];
         return node
@@ -323,49 +468,59 @@ function useMihomoState() {
       notify('已切换演示节点', 'info');
       return;
     }
-    if (client) await runAction(() => client.selectProxy(group, name), `已切换到 ${name}`);
+    if (!client) return;
+    activeSelections.current.add(actionKey);
+    try {
+      if (!closeOnSwitch) {
+        await runAction(() => client.selectProxy(group, name), `已切换到 ${name}`);
+        return;
+      }
+      const result = await switchProxyWithCleanup(client, group, name);
+      if (currentActionSession.current !== actionSession) return;
+      if (result.error || result.failed) {
+        notify(
+          `已切换到 ${name}，旧连接清理未完成：${result.error ?? `${result.failed} 条关闭失败`}。已关闭 ${result.closed} 条。`,
+          'error',
+        );
+      } else {
+        notify(`已切换到 ${name}${result.closed ? `，已关闭 ${result.closed} 条旧连接` : ''}`);
+      }
+      await refresh();
+    } catch (error) {
+      if (currentActionSession.current === actionSession)
+        notify(error instanceof Error ? error.message : '切换失败，请重试', 'error');
+    } finally {
+      activeSelections.current.delete(actionKey);
+    }
   };
-  const testDelay = async (group: string) => {
+  const testDelay = async (group: string): Promise<Record<string, number> | undefined> => {
     if (demo) {
       setProxiesDemo((current) => {
         const node = current[group];
         return node ? { ...current, [group]: { ...node, fixed: undefined } } : current;
       });
       notify('演示模式展示的是示例延迟', 'info');
-      return;
+      return Object.fromEntries(
+        (proxies[group]?.all ?? []).flatMap((name) => {
+          const delay = proxies[name]?.history.at(-1)?.delay;
+          return delay === undefined ? [] : [[name, delay]];
+        }),
+      );
     }
-    if (client)
-      await runAction(async () => {
+    if (client) {
+      let measured: Record<string, number> | undefined;
+      const success = await runAction(async () => {
         const node = proxies[group];
-        const delays = await client.groupDelay(
+        measured = await client.groupDelay(
           group,
           node?.testUrl || undefined,
           5_000,
           node?.expectedStatus || undefined,
         );
-        queryCache.setQueryData<{ proxies: Record<string, ProxyNode> }>(
-          [...key, 'proxies'],
-          (current) =>
-            current
-              ? {
-                  proxies: Object.fromEntries(
-                    Object.entries(current.proxies).map(([name, node]) => [
-                      name,
-                      delays[name] === undefined
-                        ? node
-                        : {
-                            ...node,
-                            history: [
-                              ...node.history,
-                              { time: new Date().toISOString(), delay: delays[name] ?? 0 },
-                            ],
-                          },
-                    ]),
-                  ),
-                }
-              : current,
-        );
       }, '延迟测试完成');
+      return success ? measured : undefined;
+    }
+    return undefined;
   };
   const clearProxySelection = async (group: string) => {
     if (demo) {
@@ -378,7 +533,7 @@ function useMihomoState() {
     }
     if (client) await runAction(() => client.clearProxySelection(group), '已恢复自动选择');
   };
-  const testNodeDelay = async (name: string): Promise<number | undefined> => {
+  const testNodeDelay = async (name: string, group?: string): Promise<number | undefined> => {
     if (demo) {
       notify('演示模式展示的是示例延迟', 'info');
       return proxies[name]?.history.at(-1)?.delay;
@@ -388,21 +543,32 @@ function useMihomoState() {
     const candidates = Object.entries(providersQuery.data ?? {}).filter(([, item]) =>
       item.proxies.some((node) => node.name === name),
     );
+    const coreNode = proxiesQuery.data?.proxies[name];
     const declaredProvider = proxies[name]?.['provider-name'];
     const provider = declaredProvider
       ? candidates.find(([providerName]) => providerName === declaredProvider)
-      : candidates.length === 1
+      : !coreNode && candidates.length === 1
         ? candidates[0]
         : undefined;
-    if (!proxiesQuery.data?.proxies[name] && candidates.length > 1 && !provider) {
+    if (declaredProvider && !provider) {
+      notify('暂未确认节点所属代理集，请刷新资源后重试。', 'info');
+      return;
+    }
+    if (!coreNode && candidates.length > 1 && !provider) {
       notify('多个代理集包含同名节点，请在资源页选择具体代理集后测速。', 'info');
       return;
     }
+    const targetGroup = group ? proxies[group] : undefined;
     await runAction(async () => {
       const result =
-        provider && !proxiesQuery.data?.proxies[name]
-          ? await client.providerProxyDelay(provider[0], name)
-          : await client.delay(name);
+        provider && provider[1].vehicleType !== 'Compatible'
+          ? await client.providerProxyDelay(provider[0], name, targetGroup?.testUrl || undefined)
+          : await client.delay(
+              name,
+              targetGroup?.testUrl || undefined,
+              5000,
+              targetGroup?.expectedStatus,
+            );
       measured = result.delay;
     }, '节点延迟测试完成');
     return measured;
@@ -433,6 +599,7 @@ function useMihomoState() {
     resourceError,
     config: demo ? configDemo : configQuery.data,
     proxies,
+    coreProxies: demo ? proxiesDemo : (proxiesQuery.data?.proxies ?? {}),
     providers: demo ? demoProviders : (providersQuery.data ?? {}),
     ruleProviders: demo
       ? {
@@ -461,6 +628,9 @@ function useMihomoState() {
     traffic,
     history,
     snapshot,
+    connectionHistory: connectionHistoryState.closed,
+    connectionsStream,
+    clearConnectionHistory: () => dispatchConnectionHistory({ type: 'clear' }),
     memory,
     logs,
     toasts,
@@ -473,7 +643,10 @@ function useMihomoState() {
     disconnect,
     startDemo,
     patchConfig,
+    reloadConfig,
     selectProxy,
+    closeOnSwitch,
+    setCloseOnSwitch,
     clearProxySelection,
     testDelay,
     testNodeDelay,

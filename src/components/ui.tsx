@@ -1,6 +1,6 @@
 import { Search, Inbox, LoaderCircle, X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 export function PageHeader({
   title,
@@ -126,6 +126,7 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -135,15 +136,20 @@ export function Modal({
     <dialog
       ref={ref}
       className={`modal${wide ? ' wide' : ''}`}
-      onCancel={onClose}
+      aria-labelledby={titleId}
+      aria-describedby={description ? `${titleId}-description` : undefined}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <div className="modal-head">
         <div>
-          <h2>{title}</h2>
-          {description && <p>{description}</p>}
+          <h2 id={titleId}>{title}</h2>
+          {description && <p id={`${titleId}-description`}>{description}</p>}
         </div>
         <button className="icon-button" aria-label="关闭弹窗" onClick={onClose}>
           <X size={19} />

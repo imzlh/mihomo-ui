@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { outputFolder: '.verification/report', open: 'never' }]],
   outputDir: '.verification/test-results',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5179',
     browserName: 'chromium',
     launchOptions: {
       executablePath:
@@ -25,9 +25,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'pnpm dev --host 127.0.0.1',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    command: 'pnpm build && pnpm preview --host 127.0.0.1 --port 5179 --strictPort',
+    url: 'http://127.0.0.1:5179',
+    reuseExistingServer: false,
+    timeout: 60_000,
   },
 });

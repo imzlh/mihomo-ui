@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
   Activity,
   ArrowDownToLine,
@@ -15,6 +15,9 @@ import { Link } from 'react-router-dom';
 import { Badge, EmptyState, Modal, PageHeader, SearchInput, Spinner } from '../components/ui';
 import { bytes, relativeDate } from '../lib/format';
 import type { ProxyNode, RuleProvider } from '../lib/types';
+import type { MihomoClient } from '../lib/mihomo';
+import { describeProxyDelay } from '../lib/proxy-delay';
+import { createProxyDelayStore, proxyDelayKey } from '../lib/proxy-delay-store';
 import { useTableSort, type SortAccessor } from '../hooks/use-table-sort';
 import { useMihomo } from '../state/mihomo';
 import './resources.css';
@@ -27,20 +30,63 @@ const ruleAccessors: Record<RuleSort, SortAccessor<RuleProvider>> = {
   count: (provider) => provider.ruleCount,
   updated: (provider) => (provider.updatedAt ? Date.parse(provider.updatedAt) : undefined),
 };
-const nodeAccessors: Record<'name' | 'type' | 'delay', SortAccessor<ProxyNode>> = {
-  name: (node) => node.name,
-  type: (node) => node.type,
-  delay: (node) => {
-    const delay = node.history.at(-1)?.delay;
-    return delay && delay > 0 ? delay : undefined;
-  },
-};
+// Provider-scoped identities must not share the proxy page's name-only pending keys.
+const providerDelayStores = new WeakMap<MihomoClient, ReturnType<typeof createProxyDelayStore>>();
+function providerDelayStore(client: MihomoClient) {
+  let store = providerDelayStores.get(client);
+  if (!store) {
+    store = createProxyDelayStore();
+    providerDelayStores.set(client, store);
+  }
+  return store;
+}
+
+function nodeHistoryKey(node: ProxyNode): string {
+  const last = node.history.at(-1);
+  return last ? `${last.time}:${last.delay}` : '';
+}
 
 function ProviderNodes({ name, onClose }: { name: string; onClose: () => void }) {
-  const { providers, client, demo, runAction, notify } = useMihomo();
+  const { providers, client, connected, demo, runAction, notify } = useMihomo();
   const [query, setQuery] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const store = useMemo(
+    () => (client ? providerDelayStore(client) : createProxyDelayStore()),
+    [client],
+  );
+  const delayState = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const provider = providers[name];
+  const busy = (provider?.proxies ?? []).some((node) =>
+    delayState.nodes.has(proxyDelayKey(name, node.name)),
+  );
+  const nodeDelays = useMemo(
+    () =>
+      new Map(
+        (provider?.proxies ?? []).map((node) => {
+          const identity = proxyDelayKey(name, node.name);
+          const result = delayState.results.get(proxyDelayKey(name, identity));
+          const currentResult = result?.historyKey === nodeHistoryKey(node) ? result : undefined;
+          return [
+            node.name,
+            describeProxyDelay(currentResult ? currentResult.delay : node.history.at(-1)?.delay, {
+              failed: Boolean(currentResult && currentResult.delay === undefined),
+              testing: delayState.nodes.has(identity),
+            }),
+          ];
+        }),
+      ),
+    [delayState, name, provider],
+  );
+  const nodeAccessors: Record<'name' | 'type' | 'delay', SortAccessor<ProxyNode>> = useMemo(
+    () => ({
+      name: (node) => node.name,
+      type: (node) => node.type,
+      delay: (node) => {
+        const result = nodeDelays.get(node.name);
+        return result?.state === 'measured' ? result.value : undefined;
+      },
+    }),
+    [nodeDelays],
+  );
   const nodes = useMemo(
     () =>
       (provider?.proxies ?? []).filter((node) =>
@@ -53,14 +99,26 @@ function ProviderNodes({ name, onClose }: { name: string; onClose: () => void })
     nodeAccessors,
     { key: 'name', direction: 'asc' },
   );
-  async function testNode(node: string) {
+  async function testNode(node: ProxyNode) {
     if (demo) return notify('演示模式展示示例延迟', 'info');
-    if (!client) return;
-    setBusy(node);
+    const identity = proxyDelayKey(name, node.name);
+    if (!client || !connected || busy || !store.beginNode(identity)) return;
+    let settled = false;
     try {
-      await runAction(() => client.providerProxyDelay(name, node), '节点延迟已更新');
+      await runAction(async () => {
+        const result =
+          provider?.vehicleType.toLowerCase() === 'compatible'
+            ? await client.delay(node.name)
+            : await client.providerProxyDelay(name, node.name);
+        store.finishNode(name, identity, {
+          delay: result.delay,
+          historyKey: nodeHistoryKey(node),
+        });
+        settled = true;
+      }, '节点延迟测试完成');
     } finally {
-      setBusy(null);
+      if (!settled)
+        store.finishNode(name, identity, { delay: undefined, historyKey: nodeHistoryKey(node) });
     }
   }
   return (
@@ -96,7 +154,7 @@ function ProviderNodes({ name, onClose }: { name: string; onClose: () => void })
           </thead>
           <tbody>
             {sortedRows.map((node) => {
-              const delay = node.history.at(-1)?.delay;
+              const delay = nodeDelays.get(node.name) ?? describeProxyDelay(undefined);
               return (
                 <tr key={node.name}>
                   <td>{node.name}</td>
@@ -105,17 +163,27 @@ function ProviderNodes({ name, onClose }: { name: string; onClose: () => void })
                     {node.udp && <span className="provider-udp">UDP</span>}
                   </td>
                   <td>
-                    <span className={delay && delay > 0 ? 'provider-node-latency' : 'muted'}>
-                      {delay === undefined ? '未测试' : delay > 0 ? `${delay} ms` : '超时'}
+                    <span
+                      className={delay.state === 'measured' ? 'provider-node-latency' : 'muted'}
+                      title={delay.label}
+                      style={delay.tone === 'red' ? { color: 'var(--red)' } : undefined}
+                    >
+                      {delay.state === 'testing'
+                        ? '测试中'
+                        : delay.state === 'untested'
+                          ? '未测试'
+                          : delay.state === 'measured'
+                            ? `${delay.text} ms`
+                            : delay.text}
                     </span>
                   </td>
                   <td>
                     <button
                       className="button small"
-                      disabled={!!busy}
-                      onClick={() => void testNode(node.name)}
+                      disabled={busy || (!connected && !demo)}
+                      onClick={() => void testNode(node)}
                     >
-                      {busy === node.name ? <Spinner /> : <Activity size={14} />}测速
+                      {delay.state === 'testing' ? <Spinner /> : <Activity size={14} />}测速
                     </button>
                   </td>
                 </tr>

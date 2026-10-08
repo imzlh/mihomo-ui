@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ChevronDown,
   FileCode2,
@@ -8,13 +9,16 @@ import {
   PlugZap,
   RefreshCw,
   Server,
-  SlidersHorizontal,
   Sun,
   Unplug,
 } from 'lucide-react';
 import { ConnectionDialog } from '../components/ConnectionDialog';
-import { Badge, Modal, PageHeader, Spinner, Toggle } from '../components/ui';
-import type { LogLevel, MihomoConfig } from '../lib/types';
+import { CoreMaintenance } from '../components/CoreMaintenance';
+import { RuntimeSettings } from '../components/RuntimeSettings';
+import { PreferenceBackup } from '../components/PreferenceBackup';
+import { Badge, Modal, PageHeader, Spinner } from '../components/ui';
+import type { MihomoConfigPatch } from '../lib/types';
+import { maintenanceStore } from '../lib/core-maintenance';
 import { useMihomo } from '../state/mihomo';
 import './settings.css';
 
@@ -25,13 +29,6 @@ const themes = [
   { value: 'dark', label: '深色', icon: Moon },
   { value: 'system', label: '跟随系统', icon: Monitor },
 ] as const;
-const logLevels: { value: LogLevel; label: string }[] = [
-  { value: 'debug', label: '调试 · Debug' },
-  { value: 'info', label: '信息 · Info' },
-  { value: 'warning', label: '警告 · Warning' },
-  { value: 'error', label: '错误 · Error' },
-  { value: 'silent', label: '静默 · Silent' },
-];
 
 function readTheme(): ThemePreference {
   try {
@@ -44,6 +41,16 @@ function readTheme(): ThemePreference {
 }
 
 export default function Settings() {
+  const { client, demo } = useMihomo();
+  const [scope, setScope] = useState({ client, demo, id: 0 });
+  if (scope.client !== client || scope.demo !== demo) {
+    setScope({ client, demo, id: scope.id + 1 });
+  }
+  return <SessionSettings key={scope.id} />;
+}
+
+/** A new controller session starts with fresh drafts, confirmations and busy state. */
+function SessionSettings() {
   const {
     profile,
     demo,
@@ -54,24 +61,36 @@ export default function Settings() {
     version,
     disconnect,
     patchConfig,
-    runAction,
+    reloadConfig,
     notify,
   } = useMihomo();
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(readTheme);
   const [pending, setPending] = useState<string | null>(null);
-  const [mixedPort, setMixedPort] = useState(config ? String(config['mixed-port']) : '');
-  const [portError, setPortError] = useState('');
   const [content, setContent] = useState('');
   const [reloadConfirm, setReloadConfirm] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState('');
-  const coreDisabled = !connected || !config || pending !== null || reloading;
+  const active = useRef(false);
+  const maintenance = maintenanceStore(client);
+  const { pending: maintenancePending, configWriting } = useSyncExternalStore(
+    maintenance.subscribe,
+    maintenance.getSnapshot,
+  );
+  const coreDisabled =
+    !connected ||
+    !config ||
+    pending !== null ||
+    reloading ||
+    maintenancePending !== null ||
+    configWriting;
 
   useEffect(() => {
-    setMixedPort(config ? String(config['mixed-port']) : '');
-    setPortError('');
-  }, [config?.['mixed-port'], profile?.url, demo]);
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const sync = () => setTheme(readTheme());
@@ -95,43 +114,38 @@ export default function Settings() {
     setTheme(value);
   };
 
-  const updateCore = async (name: string, patch: Partial<MihomoConfig>) => {
-    if (coreDisabled) return;
+  const updateCore = async (name: string, patch: MihomoConfigPatch): Promise<boolean> => {
+    if (coreDisabled) return false;
     setPending(name);
     try {
-      await patchConfig(patch);
+      const success = await patchConfig(patch);
+      return active.current && success;
     } finally {
-      setPending(null);
+      if (active.current) setPending(null);
     }
-  };
-
-  const applyPort = () => {
-    const port = Number(mixedPort);
-    if (!/^\d+$/.test(mixedPort.trim()) || !Number.isInteger(port) || port < 0 || port > 65535) {
-      setPortError('请输入 0 到 65535 之间的整数');
-      return;
-    }
-    setPortError('');
-    void updateCore('mixed-port', { 'mixed-port': port });
   };
 
   const reload = async () => {
-    if (!client || demo || !content.trim() || reloading) return;
+    if (
+      !client ||
+      demo ||
+      !content.trim() ||
+      reloading ||
+      maintenancePending !== null ||
+      configWriting
+    )
+      return;
     setReloading(true);
     setReloadError('');
     try {
-      const success = await runAction(async () => {
-        try {
-          await client.reloadConfig(content.trim());
-        } catch (error) {
-          setReloadError(error instanceof Error ? error.message : '重新加载失败，请检查配置内容');
-          throw error;
-        }
-      }, '配置已重新加载');
+      const success = await reloadConfig(content.trim(), (message) => {
+        if (active.current) setReloadError(message);
+      });
+      if (!active.current) return;
       if (success) setReloadConfirm(false);
       else setReloadError((current) => current || '重新加载失败，请检查后端连接后重试');
     } finally {
-      setReloading(false);
+      if (active.current) setReloading(false);
     }
   };
 
@@ -210,136 +224,19 @@ export default function Settings() {
         </div>
       </section>
 
-      <section
-        className="panel settings-section"
-        aria-labelledby="core-heading"
-        aria-busy={pending !== null}
-      >
-        <div className="settings-section-heading">
-          <SlidersHorizontal size={19} />
-          <h2 id="core-heading">内核设置</h2>
-          {pending && <Spinner />}
-          {demo && <Badge tone="purple">仅影响演示</Badge>}
-        </div>
-        {!connected && (
-          <p className="info-note settings-core-note">连接后端后，即可读取和修改内核设置。</p>
-        )}
-        {connected && !config && (
-          <p className="info-note settings-core-note">
-            <Spinner />
-            正在读取内核配置…
-          </p>
-        )}
-        <div className="setting-row">
-          <div className="setting-copy">
-            <strong>允许局域网连接</strong>
-            <p>让局域网中的其他设备使用此内核的代理服务</p>
-          </div>
-          <Toggle
-            label="允许局域网连接"
-            checked={config?.['allow-lan'] ?? false}
-            disabled={coreDisabled}
-            onChange={(value) => void updateCore('allow-lan', { 'allow-lan': value })}
-          />
-        </div>
-        <div className="setting-row">
-          <div className="setting-copy">
-            <strong>IPv6</strong>
-            <p>允许内核处理 IPv6 连接</p>
-          </div>
-          <Toggle
-            label="IPv6"
-            checked={config?.ipv6 ?? false}
-            disabled={coreDisabled}
-            onChange={(value) => void updateCore('ipv6', { ipv6: value })}
-          />
-        </div>
-        <div className="setting-row">
-          <div className="setting-copy">
-            <label htmlFor="settings-log-level">日志级别</label>
-            <p>控制内核输出日志的详细程度</p>
-          </div>
-          <select
-            id="settings-log-level"
-            className="field settings-select"
-            value={config?.['log-level'] ?? 'info'}
-            disabled={coreDisabled}
-            onChange={(event) =>
-              void updateCore('log-level', { 'log-level': event.target.value as LogLevel })
-            }
-          >
-            {logLevels.map((level) => (
-              <option key={level.value} value={level.value}>
-                {level.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="setting-row settings-port-row">
-          <div className="setting-copy">
-            <label htmlFor="settings-mixed-port">混合代理端口</label>
-            <p>HTTP 与 SOCKS 共用端口，设为 0 时关闭</p>
-          </div>
-          <div className="settings-port-control">
-            <div className="settings-inline-controls">
-              <input
-                id="settings-mixed-port"
-                className="field"
-                type="number"
-                min="0"
-                max="65535"
-                step="1"
-                placeholder="7890"
-                value={mixedPort}
-                disabled={coreDisabled}
-                aria-invalid={!!portError}
-                aria-describedby={portError ? 'settings-port-error' : undefined}
-                onChange={(event) => {
-                  setMixedPort(event.target.value);
-                  setPortError('');
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') applyPort();
-                }}
-              />
-              <button
-                className="button"
-                disabled={coreDisabled || mixedPort === String(config?.['mixed-port'] ?? '')}
-                onClick={applyPort}
-              >
-                {pending === 'mixed-port' ? <Spinner /> : null}应用
-              </button>
-            </div>
-            {portError && (
-              <p id="settings-port-error" className="settings-error" role="alert">
-                {portError}
-              </p>
-            )}
-          </div>
-        </div>
-        {config?.tun && (
-          <>
-            <div className="setting-row">
-              <div className="setting-copy">
-                <strong>TUN 模式</strong>
-                <p>
-                  通过虚拟网卡接管运行内核的设备流量
-                  {config.tun.stack ? ` · ${config.tun.stack}` : ''}
-                </p>
-              </div>
-              <Toggle
-                label="TUN 模式"
-                checked={config.tun.enable}
-                disabled={coreDisabled}
-                onChange={(enable) => void updateCore('tun', { tun: { ...config.tun, enable } })}
-              />
-            </div>
-            <p className="info-note settings-core-note">
-              TUN 在运行 Mihomo 的设备上生效，需要该设备授予内核相应的网络管理权限。
-            </p>
-          </>
-        )}
-      </section>
+      <PreferenceBackup />
+
+      <RuntimeSettings
+        key={JSON.stringify([profile?.url, profile?.secret, demo])}
+        config={config}
+        connected={connected}
+        demo={demo}
+        pending={pending ?? (configWriting ? 'config-write' : null)}
+        disabled={coreDisabled}
+        updateCore={updateCore}
+      />
+
+      <CoreMaintenance busy={pending !== null || reloading} />
 
       <details className="panel settings-advanced">
         <summary>
@@ -351,7 +248,8 @@ export default function Settings() {
         </summary>
         <div className="settings-advanced-content">
           <p className="muted">
-            粘贴完整的 YAML 配置，替换内核当前使用的配置。请先保留原配置备份。
+            粘贴完整的 YAML 配置，替换内核当前使用的配置。请先保留原配置备份。{' '}
+            保存和管理多份配置，可<Link to="/profiles">打开配置库</Link>。
           </p>
           <label className="form-field settings-yaml-label" htmlFor="settings-config-yaml">
             <span>配置内容</span>
@@ -374,7 +272,14 @@ export default function Settings() {
             <button
               className="button"
               disabled={
-                !connected || demo || !client || !content.trim() || reloading || pending !== null
+                !connected ||
+                demo ||
+                !client ||
+                !content.trim() ||
+                reloading ||
+                pending !== null ||
+                maintenancePending !== null ||
+                configWriting
               }
               onClick={() => {
                 setReloadError('');
@@ -411,7 +316,7 @@ export default function Settings() {
             </button>
             <button
               className="button primary"
-              disabled={reloading || !connected}
+              disabled={reloading || !connected || maintenancePending !== null || configWriting}
               onClick={() => void reload()}
             >
               {reloading ? <Spinner /> : <RefreshCw size={15} />}

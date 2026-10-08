@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   optimizeDeps: { entries: ['index.html'] },
+  worker: { format: 'es' },
   server: { port: 5173 },
   build: { target: 'es2022' },
 });

@@ -92,24 +92,32 @@ describe('Mihomo controller requests', () => {
     await expect(client.version()).rejects.toThrow(/有效 JSON/);
   });
 
-  it('keeps deliberate cancellation distinct from network failure', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: string, init: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener('abort', () =>
-              reject(new DOMException('Aborted', 'AbortError')),
-            );
-          }),
-      ),
-    );
-    const abort = new AbortController();
-    const client = new MihomoClient({ url: 'http://localhost:9090', secret: '' });
-    const request = client.proxies(abort.signal);
-    abort.abort();
-    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
-  });
+  it.each(['proxies', 'delay', 'providerProxyDelay'] as const)(
+    'keeps %s cancellation distinct from network failure',
+    async (method) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_url: string, init: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener('abort', () =>
+                reject(new DOMException('Aborted', 'AbortError')),
+              );
+            }),
+        ),
+      );
+      const abort = new AbortController();
+      const client = new MihomoClient({ url: 'http://localhost:9090', secret: '' });
+      const request =
+        method === 'proxies'
+          ? client.proxies(abort.signal)
+          : method === 'delay'
+            ? client.delay('Tokyo A', undefined, undefined, undefined, abort.signal)
+            : client.providerProxyDelay('Remote', 'Tokyo A', undefined, undefined, abort.signal);
+      abort.abort();
+      await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    },
+  );
 
   it('times out unresponsive requests and aborts their fetch', async () => {
     vi.useFakeTimers();
@@ -279,7 +287,7 @@ describe('documented Mihomo API contracts', () => {
     });
   });
 
-  it('uses POST for cache and maintenance operations with the documented bodies and upgrade flags', async () => {
+  it('uses bodyless POST for cache and maintenance operations with upgrade flags', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -294,7 +302,7 @@ describe('documented Mihomo API contracts', () => {
     await client.flushDns();
     await client.flushFakeIp();
     await client.updateGeo();
-    await client.restart({ path: 'config.yaml' });
+    await client.restart();
     await expect(client.upgradeCore('alpha', true)).resolves.toEqual({ status: 'ok' });
     await expect(client.upgradeUi()).resolves.toEqual({ status: 'ok' });
 
@@ -311,10 +319,7 @@ describe('documented Mihomo API contracts', () => {
       ['/upgrade', 'POST'],
       ['/upgrade/ui', 'POST'],
     ]);
-    expect(fetchMock.mock.calls[2]?.[1].body).toBe(JSON.stringify({ path: '', payload: '' }));
-    expect(fetchMock.mock.calls[3]?.[1].body).toBe(
-      JSON.stringify({ path: 'config.yaml', payload: '' }),
-    );
+    for (const [, init] of fetchMock.mock.calls) expect(init).not.toHaveProperty('body');
     expect(
       Object.fromEntries(new URL(fetchMock.mock.calls[4]?.[0] as string).searchParams),
     ).toEqual({ channel: 'alpha', force: 'true' });
@@ -381,7 +386,8 @@ describe('Mihomo WebSocket subscriptions', () => {
     const client = new MihomoClient({ url: 'https://example.com/api', secret: 'a &/?=密钥' });
     const onData = vi.fn();
     const onStatus = vi.fn();
-    const stop = client.subscribe('logs', onData, onStatus, { level: 'debug' });
+    const onInvalidFrame = vi.fn();
+    const stop = client.subscribe('logs', onData, onStatus, { level: 'debug' }, onInvalidFrame);
     const socket = MockWebSocket.instances[0]!;
     const url = new URL(socket.url);
     expect(url.protocol).toBe('wss:');
@@ -394,12 +400,17 @@ describe('Mihomo WebSocket subscriptions', () => {
       new MessageEvent('message', { data: '{"type":"info","payload":"connected"}' }),
     );
     socket.onmessage?.(new MessageEvent('message', { data: 'invalid json' }));
+    expect(onInvalidFrame).toHaveBeenCalledTimes(1);
+    socket.onmessage?.(new MessageEvent('message', { data: new ArrayBuffer(0) }));
+    expect(onInvalidFrame).toHaveBeenCalledTimes(2);
     expect(onData).toHaveBeenCalledExactlyOnceWith({ type: 'info', payload: 'connected' });
     expect(onStatus).toHaveBeenLastCalledWith('open');
 
     const lateMessage = socket.onmessage;
     stop();
     stop();
+    lateMessage?.(new MessageEvent('message', { data: 'late invalid json' }));
+    expect(onInvalidFrame).toHaveBeenCalledTimes(2);
     lateMessage?.(new MessageEvent('message', { data: '{"type":"info","payload":"late"}' }));
     expect(onData).toHaveBeenCalledTimes(1);
     expect(socket.close).toHaveBeenCalledTimes(1);

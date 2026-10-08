@@ -1,6 +1,5 @@
 import type {
   BackendProfile,
-  ConfigSource,
   ConnectionsResponse,
   ConnectionsSnapshot,
   DnsResponse,
@@ -210,10 +209,12 @@ export class MihomoClient {
     url = DEFAULT_TEST_URL,
     timeout = 5_000,
     expected?: string,
+    signal?: AbortSignal,
   ): Promise<{ delay: number }> {
     const query = new URLSearchParams({ url, timeout: String(timeout) });
     if (expected !== undefined) query.set('expected', expected);
     return this.request(`/proxies/${encodeURIComponent(name)}/delay?${query}`, {
+      signal,
       timeout: Math.max(DEFAULT_TIMEOUT, timeout + 2_500),
     });
   }
@@ -246,11 +247,13 @@ export class MihomoClient {
     name: string,
     url = DEFAULT_TEST_URL,
     timeout = 5_000,
+    signal?: AbortSignal,
   ): Promise<{ delay: number }> {
     const query = new URLSearchParams({ url, timeout: String(timeout) });
     return this.request(
       `/providers/proxies/${encodeURIComponent(provider)}/${encodeURIComponent(name)}/healthcheck?${query}`,
       {
+        signal,
         timeout: Math.max(DEFAULT_TIMEOUT, timeout + 2_500),
       },
     );
@@ -285,33 +288,26 @@ export class MihomoClient {
     return this.request('/cache/fakeip/flush', { method: 'POST' });
   }
 
-  updateGeo(source: ConfigSource = {}): Promise<void> {
+  updateGeo(): Promise<void> {
     return this.request('/configs/geo', {
       method: 'POST',
-      body: { path: source.path ?? '', payload: source.payload ?? '' },
       timeout: 120_000,
     });
   }
 
-  restart(source: ConfigSource = {}): Promise<void> {
+  restart(): Promise<void> {
     return this.request('/restart', {
       method: 'POST',
-      body: { path: source.path ?? '', payload: source.payload ?? '' },
       timeout: 30_000,
     });
   }
 
-  upgradeCore(
-    channel?: string,
-    force?: boolean,
-    source: ConfigSource = {},
-  ): Promise<UpgradeResponse> {
+  upgradeCore(channel?: string, force?: boolean): Promise<UpgradeResponse> {
     const query = new URLSearchParams();
     if (channel !== undefined) query.set('channel', channel);
     if (force !== undefined) query.set('force', String(force));
     return this.request(`/upgrade${query.size ? `?${query}` : ''}`, {
       method: 'POST',
-      body: { path: source.path ?? '', payload: source.payload ?? '' },
       timeout: 120_000,
     });
   }
@@ -337,6 +333,7 @@ export class MihomoClient {
     onData: (data: T) => void,
     onStatus?: (state: StreamStatus) => void,
     params: Record<string, string> = {},
+    onInvalidFrame?: () => void,
   ): () => void {
     const url = new URL(`${this.baseUrl}/${path}`);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -380,11 +377,16 @@ export class MihomoClient {
         onStatus?.('open');
       };
       current.onmessage = (event: MessageEvent<unknown>) => {
-        if (stopped || socket !== current || typeof event.data !== 'string') return;
+        if (stopped || socket !== current) return;
+        if (typeof event.data !== 'string') {
+          onInvalidFrame?.();
+          return;
+        }
         let data: T;
         try {
           data = JSON.parse(event.data) as T;
         } catch {
+          onInvalidFrame?.();
           return;
         }
         onData(data);

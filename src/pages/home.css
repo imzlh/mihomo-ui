@@ -162,6 +162,96 @@
   padding-top: 17px;
 }
 
+.home-sort-field,
+.home-settings-row,
+.home-interval-field,
+.home-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-sort-field {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.home-sort-field select {
+  width: auto;
+  max-width: 65%;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.home-auto-delay-note,
+.home-settings-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.home-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0 24px 24px;
+}
+
+.home-settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-settings-row {
+  font-size: 14px;
+}
+
+.home-settings-row > .field {
+  width: auto;
+  max-width: 50%;
+  padding: 7px 10px;
+}
+
+.home-interval-field {
+  justify-content: flex-end;
+  flex-shrink: 0;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.home-interval-field input {
+  width: 72px;
+  padding: 7px 10px;
+}
+
+.home-settings-actions {
+  padding-top: 4px;
+}
+
+.home-page .chart-style-button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.home-page .overview-main-grid > :only-child,
+.home-page .overview-bottom-grid > :only-child {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 761px) {
+  .home-page .stats-grid.without-memory {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-page .overview-bottom-grid:has(> :nth-child(2):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1200px) {
   .home-card-content {
     padding-right: 17px;

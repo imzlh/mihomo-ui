@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Files,
   FileText,
   Gauge,
   Github,
@@ -32,6 +33,7 @@ import Home from './pages/Home';
 
 const Proxies = lazy(() => import('./pages/Proxies'));
 const Providers = lazy(() => import('./pages/Providers'));
+const Profiles = lazy(() => import('./pages/Profiles'));
 const Connections = lazy(() => import('./pages/Connections'));
 const Rules = lazy(() => import('./pages/Rules'));
 const Logs = lazy(() => import('./pages/Logs'));
@@ -41,6 +43,7 @@ const links = [
   { path: '/', label: '概览', icon: LayoutDashboard, section: '总览' },
   { path: '/proxies', label: '代理', icon: Wifi, section: '网络管理' },
   { path: '/providers', label: '资源', icon: Box },
+  { path: '/profiles', label: '配置', icon: Files },
   { path: '/connections', label: '连接', icon: Network },
   { path: '/rules', label: '规则', icon: RouteIcon },
   { path: '/logs', label: '日志', icon: FileText },
@@ -262,6 +265,7 @@ export function App() {
               <Route path="/" element={<Home onConnect={() => setConnectOpen(true)} />} />
               <Route path="/proxies" element={<Proxies />} />
               <Route path="/providers" element={<Providers />} />
+              <Route path="/profiles" element={<Profiles />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/rules" element={<Rules />} />
               <Route path="/logs" element={<Logs />} />

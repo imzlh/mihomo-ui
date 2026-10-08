@@ -1,0 +1,125 @@
+.backup-intro {
+  margin: 8px 24px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.backup-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 24px 22px;
+}
+.backup-option {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+.backup-option-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.backup-option-heading svg {
+  color: var(--accent);
+}
+.backup-option p {
+  margin: 9px 0 15px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.backup-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.backup-actions .button {
+  font-size: 12px;
+  padding: 8px 11px;
+  gap: 6px;
+}
+.backup-delete {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.backup-delete:hover:not(:disabled) {
+  color: var(--red);
+}
+.backup-notice {
+  margin: 0 24px 20px;
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.backup-notice.error {
+  color: var(--red);
+}
+.backup-targets {
+  margin: 22px 0 16px;
+}
+.backup-targets > div,
+.backup-preview > div {
+  display: grid;
+  grid-template-columns: minmax(0, 105px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.backup-targets dt,
+.backup-preview dt {
+  color: var(--muted);
+}
+.backup-targets dd,
+.backup-preview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.backup-preview {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: var(--subtle);
+}
+.backup-preview > div + div {
+  border-top: 1px solid var(--border);
+}
+.backup-scope-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.preference-backup .modal .backup-notice {
+  margin: 16px 0 0;
+}
+@media (max-width: 760px) {
+  .backup-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 700px) {
+  .backup-intro,
+  .backup-options,
+  .backup-notice {
+    margin-left: 18px;
+    margin-right: 18px;
+  }
+}
+@media (max-width: 440px) {
+  .backup-targets > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+  .backup-preview > div {
+    grid-template-columns: minmax(0, 94px) minmax(0, 1fr);
+    gap: 8px;
+  }
+}

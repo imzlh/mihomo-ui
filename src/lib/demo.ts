@@ -52,6 +52,8 @@ export const demoConfig: MihomoConfig = {
   'mixed-port': 7890,
   port: 7891,
   'socks-port': 7892,
+  'redir-port': 0,
+  'tproxy-port': 0,
   'allow-lan': false,
   'bind-address': '*',
   'external-controller': '127.0.0.1:9090',
@@ -60,7 +62,15 @@ export const demoConfig: MihomoConfig = {
   'unified-delay': true,
   'tcp-concurrent': true,
   'find-process-mode': 'strict',
-  tun: { enable: false, stack: 'mixed', 'auto-route': true, 'auto-detect-interface': true },
+  'interface-name': '',
+  sniffing: true,
+  tun: {
+    enable: false,
+    stack: 'mixed',
+    device: 'Mihomo',
+    'auto-route': true,
+    'auto-detect-interface': true,
+  },
 };
 
 export const demoProxies: Record<string, ProxyNode> = Object.fromEntries(

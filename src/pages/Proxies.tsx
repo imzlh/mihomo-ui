@@ -1,14 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ArrowDownWideNarrow,
-  Check,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  CircleCheck,
   CircleHelp,
   EyeOff,
   Gauge,
-  Globe2,
   LoaderCircle,
   Network,
   Pin,
@@ -16,15 +15,33 @@ import {
   RotateCcw,
   Route,
   Search,
+  Settings2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Badge, EmptyState, PageHeader, SearchInput } from '../components/ui';
+import { Badge, EmptyState, Modal, PageHeader, SearchInput, Toggle } from '../components/ui';
+import { GroupIcon } from '../components/GroupIcon';
 import type { ProxyMode, ProxyNode } from '../lib/types';
+import { compareProxyDelays, describeProxyDelay } from '../lib/proxy-delay';
+import {
+  createProxyDelayStore,
+  isProxyDelayPending,
+  proxyDelayKey,
+  proxyDelayStore,
+} from '../lib/proxy-delay-store';
 import { useMihomo } from '../state/mihomo';
+import { PREFERENCES_CHANGED } from '../lib/preference-events';
+import {
+  defaultProxyPreferences,
+  readProxyPreferences,
+  writeProxyPreferences,
+  type ProxyPreferences,
+  type ProxySortOrder,
+} from '../lib/proxy-preferences';
 import './proxies.css';
 
-type SortOrder = 'original' | 'name' | 'latency';
 type PendingAction = 'select' | 'test' | 'reset';
+
+const presetNodes = new Set(['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE']);
 
 const modes: { value: ProxyMode; label: string }[] = [
   { value: 'rule', label: '规则' },
@@ -36,20 +53,9 @@ function lastDelay(node: ProxyNode | undefined): number | undefined {
   return node?.history?.at(-1)?.delay;
 }
 
-function latencyRank(node: ProxyNode | undefined): number {
-  const value = lastDelay(node);
-  return value !== undefined && value > 0 ? value : Number.POSITIVE_INFINITY;
-}
-
-function latencyDetails(node: ProxyNode | undefined) {
-  const value = lastDelay(node);
-  if (value === undefined) return { tone: 'muted', text: '未测试' };
-  if (value <= 0) return { tone: 'red', text: '超时' };
-  return { tone: value < 100 ? 'green' : value < 200 ? 'orange' : 'red', text: `${value} ms` };
-}
-
-function flagOf(name: string): string | undefined {
-  return name.match(/^\p{Regional_Indicator}{2}/u)?.[0];
+function historyKey(node: ProxyNode | undefined): string {
+  const last = node?.history.at(-1);
+  return last ? `${last.time}:${last.delay}` : '';
 }
 
 function typeLabel(type: string) {
@@ -77,12 +83,16 @@ function groupNote(group: ProxyNode): string {
 
 export default function Proxies() {
   const {
+    client,
+    profile,
     connected,
     demo,
     config,
     proxies,
     patchConfig,
     selectProxy,
+    closeOnSwitch,
+    setCloseOnSwitch,
     clearProxySelection,
     testDelay,
     testNodeDelay,
@@ -90,15 +100,66 @@ export default function Proxies() {
     notify,
   } = useMihomo();
   const [search, setSearch] = useState('');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('original');
-  const [showHidden, setShowHidden] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState(() => new Map<string, boolean>());
+  const scope = demo ? 'demo' : (profile?.url ?? 'offline');
+  const storedPreferences = useMemo(() => readProxyPreferences(scope), [scope]);
+  const [preferenceState, setPreferenceState] = useState<{
+    scope: string;
+    value: ProxyPreferences;
+  } | null>(null);
+  const preferences = preferenceState?.scope === scope ? preferenceState.value : storedPreferences;
+  const { sortOrder, showHidden } = preferences;
+  const expandedGroups = useMemo(
+    () => new Map(Object.entries(preferences.expandedGroups)),
+    [preferences.expandedGroups],
+  );
+  const [preferenceError, setPreferenceError] = useState('');
+  const [displaySettingsOpen, setDisplaySettingsOpen] = useState(false);
   const [pending, setPending] = useState(() => new Map<string, PendingAction>());
-  const [nodeTesting, setNodeTesting] = useState(() => new Set<string>());
+  const delayStore = useMemo(
+    () => (client && !demo ? proxyDelayStore(client) : createProxyDelayStore()),
+    [client, demo],
+  );
+  const delayState = useSyncExternalStore(
+    delayStore.subscribe,
+    delayStore.getSnapshot,
+    delayStore.getSnapshot,
+  );
   const [modePending, setModePending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const activeActions = useRef(new Set<string>());
-  const activeNodeTests = useRef(new Set<string>());
+  const actionSession = useMemo(() => ({ client, demo }), [client, demo]);
+  const currentSession = useRef(actionSession);
+  useEffect(() => {
+    const sync = () => {
+      setPreferenceError('');
+      setPreferenceState({ scope, value: readProxyPreferences(scope, setPreferenceError) });
+    };
+    sync();
+    setDisplaySettingsOpen(false);
+    window.addEventListener(PREFERENCES_CHANGED, sync);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, sync);
+  }, [scope]);
+
+  function updatePreferences(patch: Partial<ProxyPreferences>) {
+    const value = { ...preferences, ...patch };
+    setPreferenceState({ scope, value });
+    try {
+      writeProxyPreferences(scope, value);
+      setPreferenceError('');
+    } catch (error) {
+      setPreferenceError(
+        `显示偏好仅在当前页面生效：${error instanceof Error ? error.message : '浏览器未允许保存'}`,
+      );
+    }
+  }
+  useEffect(() => {
+    currentSession.current = actionSession;
+    activeActions.current.clear();
+    setPending(new Map());
+    return () => {
+      currentSession.current = { client: null, demo: false };
+    };
+  }, [actionSession]);
   const allGroups = useMemo(
     () => Object.values(proxies).filter((node) => Array.isArray(node.all)),
     [proxies],
@@ -114,6 +175,28 @@ export default function Proxies() {
   const availableGroups = useMemo(
     () => modeGroups.filter((group) => showHidden || !group.hidden),
     [modeGroups, showHidden],
+  );
+  const nodeDelays = useMemo(
+    () =>
+      new Map(
+        allGroups.flatMap((group) =>
+          (group.all ?? []).map((name) => {
+            const node = proxies[name];
+            const key = proxyDelayKey(group.name, name);
+            const result = delayState.results.get(key);
+            const currentResult = result?.historyKey === historyKey(node) ? result : undefined;
+            return [
+              key,
+              describeProxyDelay(currentResult ? currentResult.delay : lastDelay(node), {
+                failed: Boolean(currentResult && currentResult.delay === undefined),
+                testing:
+                  Boolean(node) && !presetNodes.has(name) && isProxyDelayPending(delayState, name),
+              }),
+            ] as const;
+          }),
+        ),
+      ),
+    [allGroups, delayState, proxies],
   );
   const visibleGroups = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -133,13 +216,15 @@ export default function Proxies() {
           nodes.sort((left, right) =>
             sortOrder === 'name'
               ? left.localeCompare(right, 'zh-CN')
-              : latencyRank(proxies[left]) - latencyRank(proxies[right]) ||
-                left.localeCompare(right, 'zh-CN'),
+              : compareProxyDelays(
+                  nodeDelays.get(proxyDelayKey(group.name, left)) ?? describeProxyDelay(undefined),
+                  nodeDelays.get(proxyDelayKey(group.name, right)) ?? describeProxyDelay(undefined),
+                ),
           );
         return { group, nodes, matched: groupMatches || nodes.length > 0 };
       })
       .filter((item) => item.matched);
-  }, [availableGroups, proxies, search, sortOrder]);
+  }, [availableGroups, nodeDelays, proxies, search, sortOrder]);
   const allExpanded =
     visibleGroups.length > 0 &&
     visibleGroups.every(
@@ -158,43 +243,56 @@ export default function Proxies() {
   }
 
   async function groupAction(group: ProxyNode, action: PendingAction, name?: string) {
-    if (!connected || activeActions.current.has(group.name)) return;
+    if (
+      !connected ||
+      activeActions.current.has(group.name) ||
+      delayStore.getSnapshot().groups.has(group.name)
+    )
+      return;
+    if (action === 'test') {
+      const members = (group.all ?? []).filter(
+        (member) => Boolean(proxies[member]) && !presetNodes.has(member),
+      );
+      if (!delayStore.beginGroup(group.name, members)) return;
+      const historyKeys = new Map(members.map((member) => [member, historyKey(proxies[member])]));
+      let delays: Record<string, number> | undefined;
+      try {
+        delays = await testDelay(group.name);
+      } finally {
+        delayStore.finishGroup(group.name, delays, historyKeys);
+      }
+      return;
+    }
     if (action === 'select') {
       if (!name || (group.type !== 'Selector' && !canPin(group))) return;
       if (group.type === 'Selector' ? group.now === name : group.fixed === name) return;
     }
     if (action === 'reset' && (!canPin(group) || !group.fixed)) return;
-    if (action === 'test' && group.all?.some((member) => activeNodeTests.current.has(member)))
-      return;
     activeActions.current.add(group.name);
     setPending((current) => new Map(current).set(group.name, action));
     try {
-      if (action === 'test') await testDelay(group.name);
-      else if (action === 'reset') await clearProxySelection(group.name);
+      if (action === 'reset') await clearProxySelection(group.name);
       else if (name) await selectProxy(group.name, name);
     } finally {
-      activeActions.current.delete(group.name);
-      setPending((current) => {
-        const next = new Map(current);
-        next.delete(group.name);
-        return next;
-      });
+      if (currentSession.current === actionSession) {
+        activeActions.current.delete(group.name);
+        setPending((current) => {
+          const next = new Map(current);
+          next.delete(group.name);
+          return next;
+        });
+      }
     }
   }
 
-  async function testNode(name: string) {
-    if (!connected || activeNodeTests.current.has(name)) return;
-    activeNodeTests.current.add(name);
-    setNodeTesting((current) => new Set(current).add(name));
+  async function testNode(name: string, group: ProxyNode) {
+    if (!connected || !delayStore.beginNode(name)) return;
+    const previousHistoryKey = historyKey(proxies[name]);
+    let delay: number | undefined;
     try {
-      await testNodeDelay(name);
+      delay = await testNodeDelay(name, group.name);
     } finally {
-      activeNodeTests.current.delete(name);
-      setNodeTesting((current) => {
-        const next = new Set(current);
-        next.delete(name);
-        return next;
-      });
+      delayStore.finishNode(group.name, name, { delay, historyKey: previousHistoryKey });
     }
   }
 
@@ -212,7 +310,9 @@ export default function Proxies() {
   }
 
   return (
-    <div className="page-stack proxies-page">
+    <div
+      className={`page-stack proxies-page proxy-density-${preferences.density} proxy-columns-${preferences.columns}`}
+    >
       <PageHeader title="代理" description="管理代理组与节点，选择适合你的连接方式。">
         <div className="segmented proxy-mode-control" role="group" aria-label="代理模式">
           {modes.map((mode) => (
@@ -251,54 +351,88 @@ export default function Proxies() {
               {demo && <Badge tone="orange">演示数据</Badge>}
             </div>
             <div className="proxy-toolbar-actions">
-              <label className="proxy-hidden-filter">
-                <input
-                  type="checkbox"
-                  checked={showHidden}
-                  onChange={(event) => setShowHidden(event.target.checked)}
-                />
-                显示隐藏代理组{hiddenCount > 0 && <span>({hiddenCount})</span>}
-              </label>
-              <label className="proxy-sort">
-                <ArrowDownWideNarrow size={16} />
-                <select
-                  aria-label="节点排序"
-                  value={sortOrder}
-                  onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+              <div className="proxy-filter-options">
+                <label
+                  className="proxy-hidden-filter"
+                  title="手动切换成员成功后，仅关闭经过该组旧成员的已有连接；首页切换也生效"
                 >
-                  <option value="original">默认排序</option>
-                  <option value="name">名称排序</option>
-                  <option value="latency">延迟排序</option>
-                </select>
-              </label>
-              <button
-                className="icon-button"
-                title={allExpanded ? '收起全部代理组' : '展开全部代理组'}
-                aria-label={allExpanded ? '收起全部代理组' : '展开全部代理组'}
-                disabled={visibleGroups.length === 0}
-                onClick={() =>
-                  setExpandedGroups(
-                    (current) =>
-                      new Map([
-                        ...current,
+                  <input
+                    type="checkbox"
+                    aria-label="切换后关闭旧连接"
+                    checked={closeOnSwitch}
+                    onChange={(event) => setCloseOnSwitch(event.target.checked)}
+                  />
+                  <span className="proxy-filter-full-label">切换后关闭旧连接</span>
+                  <span className="proxy-filter-short-label">关闭旧连接</span>
+                </label>
+                <label className="proxy-hidden-filter">
+                  <input
+                    type="checkbox"
+                    aria-label="显示隐藏代理组"
+                    checked={showHidden}
+                    onChange={(event) => updatePreferences({ showHidden: event.target.checked })}
+                  />
+                  <span className="proxy-filter-full-label">显示隐藏代理组</span>
+                  <span className="proxy-filter-short-label">显示隐藏</span>
+                  {hiddenCount > 0 && <span>({hiddenCount})</span>}
+                </label>
+                <label className="proxy-sort">
+                  <ArrowDownWideNarrow size={16} />
+                  <select
+                    aria-label="节点排序"
+                    value={sortOrder}
+                    onChange={(event) =>
+                      updatePreferences({ sortOrder: event.target.value as ProxySortOrder })
+                    }
+                  >
+                    <option value="original">默认排序</option>
+                    <option value="name">名称排序</option>
+                    <option value="latency">延迟排序</option>
+                  </select>
+                </label>
+              </div>
+              <div className="proxy-view-tools">
+                <button
+                  className="icon-button"
+                  aria-label="代理显示设置"
+                  title="代理显示设置"
+                  onClick={() => setDisplaySettingsOpen(true)}
+                >
+                  <Settings2 size={17} />
+                </button>
+                <button
+                  className="icon-button"
+                  title={allExpanded ? '收起全部代理组' : '展开全部代理组'}
+                  aria-label={allExpanded ? '收起全部代理组' : '展开全部代理组'}
+                  disabled={visibleGroups.length === 0}
+                  onClick={() =>
+                    updatePreferences({
+                      expandedGroups: Object.fromEntries([
+                        ...expandedGroups,
                         ...visibleGroups.map(({ group }) => [group.name, !allExpanded] as const),
                       ]),
-                  )
-                }
-              >
-                {allExpanded ? <ChevronsDownUp size={17} /> : <ChevronsUpDown size={17} />}
-              </button>
-              <button
-                className="icon-button"
-                aria-label="刷新代理列表"
-                title="刷新代理列表"
-                disabled={refreshing}
-                onClick={() => void reload()}
-              >
-                <RefreshCw size={16} className={refreshing ? 'proxy-spinning' : ''} />
-              </button>
+                    })
+                  }
+                >
+                  {allExpanded ? <ChevronsDownUp size={17} /> : <ChevronsUpDown size={17} />}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="刷新代理列表"
+                  title="刷新代理列表"
+                  disabled={refreshing}
+                  onClick={() => void reload()}
+                >
+                  <RefreshCw size={16} className={refreshing ? 'proxy-spinning' : ''} />
+                </button>
+              </div>
             </div>
           </div>
+          {preferenceError && (
+            <p className="proxy-preference-note" role="status">
+              {preferenceError}
+            </p>
+          )}
           {config?.mode === 'direct' && (
             <div className="proxy-mode-notice">
               <Route size={16} />
@@ -333,8 +467,9 @@ export default function Proxies() {
                   expandedGroups.get(group.name) ?? (Boolean(search.trim()) || index === 0);
                 const pinnable = canPin(group);
                 const selectable = group.type === 'Selector' || pinnable;
-                const busy = pending.get(group.name);
-                const hasNodeTest = group.all?.some((name) => nodeTesting.has(name)) ?? false;
+                const busy = delayState.groups.has(group.name) ? 'test' : pending.get(group.name);
+                const hasNodeTest =
+                  group.all?.some((name) => isProxyDelayPending(delayState, name)) ?? false;
                 return (
                   <section
                     className={`panel proxy-group${expanded ? ' is-open' : ''}`}
@@ -347,44 +482,54 @@ export default function Proxies() {
                         aria-label={`${expanded ? '收起' : '展开'} ${group.name}`}
                         aria-expanded={expanded}
                         onClick={() =>
-                          setExpandedGroups((current) =>
-                            new Map(current).set(group.name, !expanded),
-                          )
+                          updatePreferences({
+                            expandedGroups: Object.fromEntries(
+                              new Map(expandedGroups).set(group.name, !expanded),
+                            ),
+                          })
                         }
                       >
                         <ChevronDown size={16} className={expanded ? '' : 'is-collapsed'} />
-                        <span className="proxy-group-name">{group.name}</span>
-                        <span className="proxy-member-count">{group.all?.length ?? 0}</span>
+                        {preferences.showGroupIcons && <GroupIcon icon={group.icon} />}
+                        <span className="proxy-group-identity">
+                          <span className="proxy-group-name" title={group.name}>
+                            {group.name}
+                          </span>
+                          <span className="proxy-group-subtitle">
+                            <span className="proxy-group-type">{typeLabel(group.type)}</span>
+                            <span
+                              className="group-summary"
+                              title={
+                                group.now ||
+                                (group.type === 'LoadBalance'
+                                  ? '请求按负载均衡策略分配'
+                                  : '内核未提供当前节点')
+                              }
+                            >
+                              {group.now ||
+                                (group.type === 'LoadBalance' ? '负载均衡' : '尚未选择')}
+                            </span>
+                          </span>
+                        </span>
                       </button>
-                      <Badge tone="neutral">{typeLabel(group.type)}</Badge>
                       {group.hidden && (
                         <span className="proxy-hidden-badge" title="此代理组设置为隐藏">
                           <EyeOff size={14} />
-                          隐藏
+                          <span className="proxy-status-label">隐藏</span>
                         </span>
                       )}
                       {pinnable && group.fixed && (
-                        <Badge tone="purple">
+                        <span className="proxy-fixed-badge" title="已固定节点">
                           <Pin size={12} />
-                          已固定
-                        </Badge>
+                          <span className="proxy-status-label">已固定</span>
+                        </span>
                       )}
-                      <div
-                        className="group-summary"
-                        title={
-                          group.now ||
-                          (group.type === 'LoadBalance'
-                            ? '请求按负载均衡策略分配'
-                            : '内核未提供当前节点')
-                        }
-                      >
-                        <span className="proxy-selected-dot" />
-                        {group.now || (group.type === 'LoadBalance' ? '负载均衡' : '尚未选择')}
-                      </div>
                       <div className="proxy-group-actions">
                         {pinnable && group.fixed && (
                           <button
                             className="button small proxy-reset-button"
+                            aria-label={busy === 'reset' ? '正在恢复自动' : '恢复自动'}
+                            title="恢复自动"
                             disabled={Boolean(busy)}
                             onClick={() => void groupAction(group, 'reset')}
                           >
@@ -393,11 +538,18 @@ export default function Proxies() {
                             ) : (
                               <RotateCcw size={14} />
                             )}
-                            恢复自动
+                            <span className="proxy-action-label">恢复自动</span>
                           </button>
                         )}
                         <button
                           className="button small proxy-test-button"
+                          aria-label={
+                            busy === 'test'
+                              ? '测试中…'
+                              : pinnable && group.fixed
+                                ? '测速并恢复自动'
+                                : '延迟测试'
+                          }
                           disabled={Boolean(busy) || hasNodeTest}
                           title={
                             group.testUrl
@@ -411,12 +563,20 @@ export default function Proxies() {
                           ) : (
                             <Gauge size={14} />
                           )}
-                          {busy === 'test'
-                            ? '测试中…'
-                            : pinnable && group.fixed
-                              ? '测速并恢复自动'
-                              : '延迟测试'}
+                          <span className="proxy-action-label">
+                            {busy === 'test'
+                              ? '测试中…'
+                              : pinnable && group.fixed
+                                ? '测速并恢复自动'
+                                : '延迟测试'}
+                          </span>
                         </button>
+                        <span
+                          className="proxy-member-count"
+                          title={`${group.all?.length ?? 0} 个节点`}
+                        >
+                          {group.all?.length ?? 0}
+                        </span>
                       </div>
                     </div>
                     {expanded && (
@@ -435,9 +595,17 @@ export default function Proxies() {
                               const node = proxies[name];
                               const selected = group.now === name;
                               const pinned = pinnable && group.fixed === name;
-                              const flag = flagOf(name);
-                              const latency = latencyDetails(node);
-                              const testingNode = nodeTesting.has(name);
+                              const testingNode = delayState.nodes.has(name);
+                              const testable = Boolean(node) && !presetNodes.has(name);
+                              const latency =
+                                nodeDelays.get(proxyDelayKey(group.name, name)) ??
+                                describeProxyDelay(undefined);
+                              const testing = latency.state === 'testing';
+                              const delayLabel = testing
+                                ? testingNode
+                                  ? '测试中'
+                                  : '等待测速结果'
+                                : latency.label;
                               const provider = node?.['provider-name'];
                               const capabilities = [
                                 node?.udp === true
@@ -458,13 +626,18 @@ export default function Proxies() {
                                   className={`proxy-node${selected ? ' selected' : ''}${!selectable ? ' is-automatic' : ''}${busy ? ' is-busy' : ''}`}
                                   data-node-name={name}
                                   aria-label={`${name} 节点`}
+                                  title={
+                                    [provider && `来自 ${provider}`, capabilities]
+                                      .filter(Boolean)
+                                      .join(' · ') || undefined
+                                  }
                                 >
                                   <button
                                     type="button"
                                     className="proxy-node-select"
                                     disabled={!selectable || Boolean(busy)}
                                     aria-pressed={selected}
-                                    aria-label={`${name}，${latency.text}${selected ? '，当前选择' : ''}`}
+                                    aria-label={`${name}，${delayLabel}${selected ? '，当前选择' : ''}`}
                                     title={
                                       pinnable
                                         ? `${name} · ${pinned ? '已固定' : '点击固定此节点'}`
@@ -473,78 +646,73 @@ export default function Proxies() {
                                     onClick={() => void groupAction(group, 'select', name)}
                                   >
                                     <span className="proxy-node-main">
-                                      <span
-                                        className={`proxy-node-symbol${flag ? ' is-flag' : ''}`}
-                                        aria-hidden="true"
-                                      >
-                                        {flag ||
-                                          (node?.all ? <Route size={16} /> : <Globe2 size={16} />)}
-                                      </span>
-                                      <span className="proxy-node-name">
-                                        {flag ? name.slice(flag.length).trim() : name}
-                                      </span>
-                                      <span
-                                        className={`proxy-selection-mark${selected || pinned ? ' is-selected' : ''}`}
-                                      >
-                                        {pinned ? (
+                                      <span className="proxy-node-name">{name}</span>
+                                      {pinned && (
+                                        <span className="proxy-selection-mark is-selected">
                                           <Pin size={11} strokeWidth={2.5} />
-                                        ) : selected ? (
-                                          <Check size={11} strokeWidth={3} />
-                                        ) : null}
-                                      </span>
+                                        </span>
+                                      )}
                                     </span>
                                     <span className="proxy-node-details">
                                       <span className="proxy-node-protocol" title={capabilities}>
-                                        {node?.type || '未知协议'}
+                                        {node?.now && (
+                                          <span className="proxy-node-current">{node.now}</span>
+                                        )}
+                                        <span className="proxy-node-capability">
+                                          {node?.type || '未知协议'}
+                                        </span>
                                         {node?.udp === true && (
                                           <span className="proxy-node-capability">UDP</span>
                                         )}
                                         {node?.uot && (
                                           <span className="proxy-node-capability">UOT</span>
                                         )}
-                                      </span>
-                                      <span className={`latency tone-${latency.tone}`}>
-                                        <i />
-                                        {latency.text}
+                                        {node?.xudp && (
+                                          <span className="proxy-node-capability">XUDP</span>
+                                        )}
                                       </span>
                                     </span>
                                   </button>
-                                  <div className="proxy-node-footer">
-                                    <span
-                                      className={`proxy-node-source${node?.alive === false ? ' tone-red' : ''}`}
-                                      title={
-                                        provider
-                                          ? `来自 ${provider}${capabilities ? ` · ${capabilities}` : ''}`
-                                          : capabilities || undefined
-                                      }
-                                    >
-                                      {node?.alive === false
-                                        ? '最近测试不可用'
-                                        : provider ||
-                                          (pinned
-                                            ? '已固定节点'
-                                            : node?.now
-                                              ? `当前：${node.now}`
-                                              : node?.udp === false
-                                                ? '不支持 UDP'
-                                                : '节点延迟')}
-                                    </span>
+                                  {testable && (
                                     <button
                                       type="button"
-                                      className="proxy-node-test"
+                                      className={`proxy-node-test${latency.text === '-' ? ' is-untested' : ''}`}
                                       aria-label="测试节点延迟"
-                                      title={`测试 ${name} 的延迟`}
-                                      disabled={testingNode || Boolean(busy)}
-                                      onClick={() => void testNode(name)}
+                                      aria-busy={testing}
+                                      title={`${delayLabel} · ${name}${testing ? '' : ' · 点击测试延迟'}`}
+                                      disabled={testing || Boolean(busy)}
+                                      onClick={() => void testNode(name, group)}
                                     >
-                                      {testingNode ? (
-                                        <LoaderCircle size={14} className="proxy-spinning" />
+                                      {testing ? (
+                                        <span
+                                          className="proxy-delay-loading"
+                                          role="status"
+                                          aria-label={delayLabel}
+                                        >
+                                          <i />
+                                          <i />
+                                          <i />
+                                        </span>
                                       ) : (
-                                        <Gauge size={14} />
+                                        <>
+                                          {latency.text === '-' && selected ? (
+                                            <CircleCheck
+                                              className="proxy-delay-selection"
+                                              size={16}
+                                              aria-hidden="true"
+                                            />
+                                          ) : (
+                                            <span className={`latency tone-${latency.tone}`}>
+                                              {latency.text}
+                                            </span>
+                                          )}
+                                          {latency.text === '-' && (
+                                            <span className="proxy-delay-check">测试</span>
+                                          )}
+                                        </>
                                       )}
-                                      <span>{testingNode ? '测试中' : '测试'}</span>
                                     </button>
-                                  </div>
+                                  )}
                                 </article>
                               );
                             })}
@@ -559,9 +727,85 @@ export default function Proxies() {
           )}
           <p className="proxy-page-hint">
             <span className="proxy-hint-dot" />
-            延迟来自最近一次测试，可单独测试节点或测试整个代理组。
+            延迟单位为 ms，点击数字测试节点；三点动画表示正在等待内核测速结果。
           </p>
         </>
+      )}
+      {displaySettingsOpen && (
+        <Modal
+          title="代理显示设置"
+          description="偏好按当前控制器保存；窄屏会自动减少列数。"
+          onClose={() => setDisplaySettingsOpen(false)}
+        >
+          <div className="proxy-display-settings">
+            <div className="proxy-display-setting">
+              <div>
+                <strong>节点间距</strong>
+                <p>保留节点卡片与延迟字号，调整列表留白</p>
+              </div>
+              <div className="segmented" role="group" aria-label="节点间距">
+                {(['compact', 'comfortable'] as const).map((value) => (
+                  <button
+                    key={value}
+                    className={preferences.density === value ? 'active' : ''}
+                    aria-pressed={preferences.density === value}
+                    onClick={() => updatePreferences({ density: value })}
+                  >
+                    {value === 'compact' ? '紧凑' : '宽松'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="proxy-display-setting">
+              <div>
+                <label htmlFor="proxy-column-count">节点列数</label>
+                <p>自动布局会随窗口宽度调整</p>
+              </div>
+              <select
+                className="field"
+                id="proxy-column-count"
+                value={preferences.columns}
+                onChange={(event) =>
+                  updatePreferences({
+                    columns:
+                      event.target.value === 'auto'
+                        ? 'auto'
+                        : (Number(event.target.value) as 2 | 3 | 4),
+                  })
+                }
+              >
+                <option value="auto">自动</option>
+                <option value="2">2 列</option>
+                <option value="3">3 列</option>
+                <option value="4">4 列</option>
+              </select>
+            </div>
+            <div className="proxy-display-setting">
+              <div>
+                <strong>显示代理组图标</strong>
+                <p>使用代理组提供的图标，无法加载时显示默认图标</p>
+              </div>
+              <Toggle
+                label="显示代理组图标"
+                checked={preferences.showGroupIcons}
+                onChange={(value) => updatePreferences({ showGroupIcons: value })}
+              />
+            </div>
+            {preferenceError && (
+              <p className="proxy-preference-note" role="status">
+                {preferenceError}
+              </p>
+            )}
+          </div>
+          <div className="form-actions">
+            <button className="button" onClick={() => updatePreferences(defaultProxyPreferences())}>
+              恢复默认显示
+            </button>
+            <button className="button primary" onClick={() => setDisplaySettingsOpen(false)}>
+              完成
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -64,21 +64,6 @@
   width: 168px;
   flex-shrink: 0;
 }
-.settings-port-control {
-  min-width: 168px;
-}
-.settings-inline-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.settings-inline-controls input {
-  width: 104px;
-}
-.settings-inline-controls .button {
-  min-width: 58px;
-  justify-content: center;
-}
 .settings-core-note {
   margin: 10px 24px 20px;
   line-height: 1.75;
@@ -164,6 +149,115 @@
 .settings-reload-target span {
   color: var(--muted, #92909d);
 }
+.runtime-settings .setting-row {
+  padding: 15px 0;
+}
+.runtime-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 24px 0;
+  padding: 11px 12px;
+  border-radius: 8px;
+  background: var(--subtle);
+  color: var(--muted);
+}
+.runtime-group-heading h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.runtime-group-heading + .setting-row {
+  border-top: 0;
+}
+.runtime-port-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+.runtime-port-summary > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.runtime-port-summary b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 550;
+}
+.runtime-edit-button,
+.runtime-settings .badge,
+.runtime-settings .toggle {
+  flex-shrink: 0;
+}
+.runtime-edit-button {
+  gap: 6px;
+  font-size: 12px;
+}
+.runtime-interface-summary {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  overflow-wrap: anywhere;
+}
+.runtime-footnote {
+  margin: 0 24px;
+  padding: 4px 0 20px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.runtime-editor {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+.runtime-port-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.runtime-editor-field {
+  min-width: 0;
+  font-size: 12px;
+}
+.runtime-editor-field > span {
+  font-weight: 600;
+}
+.runtime-editor-field .field {
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+}
+.runtime-editor-field small {
+  font-size: 11px;
+}
+.runtime-editor-toggles .setting-row {
+  margin: 0;
+  padding: 14px 0;
+}
+.runtime-editor-toggles .setting-copy strong {
+  font-size: 12px;
+}
+.runtime-editor-toggles .setting-copy p {
+  font-size: 11px;
+}
+.runtime-editor .form-actions,
+.runtime-editor .settings-error {
+  margin-top: 0;
+}
+.runtime-editor-note {
+  margin: 0;
+  line-height: 1.8;
+}
 @media (max-width: 700px) {
   .settings-section > .settings-section-heading {
     padding: 20px 18px 6px;
@@ -194,6 +288,11 @@
     margin-left: 18px;
     margin-right: 18px;
   }
+  .runtime-group-heading,
+  .runtime-footnote {
+    margin-left: 18px;
+    margin-right: 18px;
+  }
   .settings-advanced summary {
     padding: 21px 18px;
   }
@@ -204,8 +303,17 @@
 }
 @media (max-width: 440px) {
   .settings-section:nth-of-type(2) .setting-row,
-  .settings-port-row {
+  .runtime-select-row {
     flex-wrap: wrap;
+  }
+  .runtime-select-row .settings-select {
+    width: 100%;
+  }
+  .runtime-port-summary {
+    gap: 5px;
+  }
+  .runtime-port-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
   .settings-reload-footer {
     align-items: flex-start;

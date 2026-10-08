@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowRight,
@@ -48,6 +48,17 @@ export default function Rules() {
   const [refreshing, setRefreshing] = useState(false);
   const [pendingRules, setPendingRules] = useState<Set<number>>(new Set());
   const pendingActions = useRef(new Set<number>());
+  const session = useMemo(() => ({ client, demo }), [client, demo]);
+  const currentSession = useRef<typeof session | null>(session);
+  useEffect(() => {
+    currentSession.current = session;
+    pendingActions.current.clear();
+    setPendingRules(new Set());
+    setRefreshing(false);
+    return () => {
+      currentSession.current = null;
+    };
+  }, [session]);
   const hasExtra = rules.some((rule) => rule.extra !== undefined);
   const columns: typeof ruleColumns = [
     ...ruleColumns,
@@ -85,28 +96,50 @@ export default function Rules() {
     try {
       await runAction(refresh, '规则已刷新');
     } finally {
-      setRefreshing(false);
+      if (currentSession.current === session) setRefreshing(false);
     }
   }
 
   async function toggleRule(rule: DisplayRule) {
     if (demo) return notify('演示模式下不会修改实际内核', 'info');
-    if (!client || !connected || pendingActions.current.has(rule.ruleIndex)) return;
+    if (
+      !client ||
+      !connected ||
+      typeof rule.extra?.disabled !== 'boolean' ||
+      pendingActions.current.has(rule.ruleIndex)
+    )
+      return;
     pendingActions.current.add(rule.ruleIndex);
     setPendingRules((current) => new Set(current).add(rule.ruleIndex));
     const disabled = rule.extra?.disabled !== true;
     try {
       await runAction(
-        () => client.disableRules({ [String(rule.ruleIndex)]: disabled }),
+        async () => {
+          await client.disableRules({ [String(rule.ruleIndex)]: disabled });
+          const actual = (await client.rules()).find(
+            (item, index) => (item.index ?? index) === rule.ruleIndex,
+          );
+          if (
+            !actual ||
+            actual.type !== rule.type ||
+            actual.payload !== rule.payload ||
+            actual.proxy !== rule.proxy
+          )
+            throw new Error('规则列表已改变，无法确认这次修改。请刷新规则后重试。');
+          if (actual.extra?.disabled !== disabled)
+            throw new Error(`第 ${rule.priority} 条规则的临时状态未生效，请检查内核状态后重试。`);
+        },
         `第 ${rule.priority} 条规则已${disabled ? '临时禁用' : '启用'}`,
       );
     } finally {
-      pendingActions.current.delete(rule.ruleIndex);
-      setPendingRules((current) => {
-        const next = new Set(current);
-        next.delete(rule.ruleIndex);
-        return next;
-      });
+      if (currentSession.current === session) {
+        pendingActions.current.delete(rule.ruleIndex);
+        setPendingRules((current) => {
+          const next = new Set(current);
+          next.delete(rule.ruleIndex);
+          return next;
+        });
+      }
     }
   }
 
@@ -292,9 +325,16 @@ export default function Rules() {
                           <button
                             type="button"
                             className="button small"
-                            disabled={pendingRules.has(rule.ruleIndex)}
+                            disabled={
+                              typeof rule.extra?.disabled !== 'boolean' ||
+                              pendingRules.has(rule.ruleIndex)
+                            }
                             aria-label={`${rule.extra?.disabled ? '启用' : '临时禁用'}第 ${rule.priority} 条规则`}
-                            title="临时开关，内核重启后重置"
+                            title={
+                              typeof rule.extra?.disabled === 'boolean'
+                                ? '临时开关，内核重启后重置'
+                                : '内核未提供此规则的临时启停能力'
+                            }
                             onClick={() => void toggleRule(rule)}
                           >
                             {pendingRules.has(rule.ruleIndex) ? (

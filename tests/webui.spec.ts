@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { MihomoConfig, ProxyNode, Rule } from '../src/lib/types';
+import type { ConnectionsResponse, MihomoConfig, ProxyNode, Rule } from '../src/lib/types';
 
 const controller = 'http://127.0.0.1:9090/control';
 const secret = 'browser-test /?&';
@@ -35,11 +35,42 @@ async function mockController(
     versionGate?: Promise<void>;
     dnsGate?: Promise<void>;
     ignoreTunPatch?: boolean;
+    connectionChains?: Record<string, string[]>;
+    rejectSelection?: boolean;
+    rejectCloseIds?: string[];
   } = {},
 ) {
   const calls: ApiCall[] = [];
   const sockets: URL[] = [];
   const requestUrls: URL[] = [];
+  const connectionStreams = new Set<(snapshot: ConnectionsResponse) => void>();
+  const snapshot: ConnectionsResponse = {
+    uploadTotal: 1048576,
+    downloadTotal: 8388608,
+    connections: options.idle
+      ? null
+      : Object.entries(
+          options.connectionChains ?? { 'browser-connection': ['Tokyo A', groupName] },
+        ).map(([id, chains]) => ({
+          id,
+          chains,
+          upload: 1024,
+          download: 2048,
+          start: '2026-10-07T06:00:00Z',
+          rule: 'Match',
+          rulePayload: '',
+          metadata: {
+            network: 'tcp',
+            type: 'Mixed',
+            host: 'browser-smoke.example',
+            sourceIP: '127.0.0.1',
+            sourcePort: 51800,
+            destinationIP: '203.0.113.10',
+            destinationPort: 443,
+            process: 'Chrome',
+          },
+        })),
+  };
   let config: MihomoConfig = {
     mode: 'rule',
     'mixed-port': 7890,
@@ -144,12 +175,31 @@ async function mockController(
     else if (path === '/proxies') await json({ proxies });
     else if (path.startsWith('/proxies/') && ['PUT', 'DELETE'].includes(request.method())) {
       const group = proxies[decodeURIComponent(path.slice('/proxies/'.length))]!;
+      if (request.method() === 'PUT' && options.rejectSelection) {
+        await json({ message: 'Proxy selection rejected' }, 400);
+        return;
+      }
       if (request.method() === 'DELETE') delete group.fixed;
       else {
         group.now = (body as { name: string }).name;
         if (group.type === 'URLTest') group.fixed = group.now;
       }
       await route.fulfill({ status: 204, headers });
+    } else if (path.startsWith('/proxies/') && request.method() === 'GET') {
+      const proxy = proxies[decodeURIComponent(path.slice('/proxies/'.length))];
+      if (proxy) await json(proxy);
+      else await json({ message: 'Proxy not found' }, 404);
+    } else if (path === '/connections' && request.method() === 'GET') {
+      await json(snapshot);
+    } else if (path.startsWith('/connections/') && request.method() === 'DELETE') {
+      const id = decodeURIComponent(path.slice('/connections/'.length));
+      if (options.rejectCloseIds?.includes(id)) {
+        await json({ message: 'Connection close rejected' }, 500);
+        return;
+      }
+      snapshot.connections = (snapshot.connections ?? []).filter((item) => item.id !== id);
+      await route.fulfill({ status: 204, headers });
+      connectionStreams.forEach((send) => send(snapshot));
     } else if (
       path ===
       `/providers/proxies/${encodeURIComponent(providerName)}/${encodeURIComponent('Tokyo B')}/healthcheck`
@@ -195,39 +245,18 @@ async function mockController(
     const messages: Record<string, unknown> = {
       traffic: { up: 524288, down: 2097152 },
       memory: { inuse: 67108864, oslimit: 0 },
-      connections: {
-        uploadTotal: 1048576,
-        downloadTotal: 8388608,
-        connections: options.idle
-          ? null
-          : [
-              {
-                id: 'browser-connection',
-                upload: 1024,
-                download: 2048,
-                start: '2026-10-07T06:00:00Z',
-                chains: ['Tokyo A', groupName],
-                rule: 'Match',
-                rulePayload: '',
-                metadata: {
-                  network: 'tcp',
-                  type: 'Mixed',
-                  host: 'browser-smoke.example',
-                  sourceIP: '127.0.0.1',
-                  sourcePort: 51800,
-                  destinationIP: '203.0.113.10',
-                  destinationPort: 443,
-                  process: 'Chrome',
-                },
-              },
-            ],
-      },
+      connections: snapshot,
       logs: { type: 'info', payload: 'Browser WebSocket verification message' },
     };
     const message = messages[url.pathname.split('/').pop()!];
     if (message) socket.send(JSON.stringify(message));
+    if (url.pathname.endsWith('/connections')) {
+      const send = (value: ConnectionsResponse) => socket.send(JSON.stringify(value));
+      connectionStreams.add(send);
+      socket.onClose(() => connectionStreams.delete(send));
+    }
   });
-  return { calls, sockets, requestUrls };
+  return { calls, sockets, requestUrls, snapshot };
 }
 
 async function openConnection(page: Page) {
@@ -306,6 +335,9 @@ test('explicit demo supports navigation, mode and node selection without control
   await page.getByRole('button', { name: /规则模式/ }).click();
   await navigate(page, '代理');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  const closeOnSwitch = page.getByRole('checkbox', { name: '切换后关闭旧连接', exact: true });
+  await expect(closeOnSwitch).not.toBeChecked();
+  await closeOnSwitch.check();
   const demoNode = page.getByRole('button', { name: /香港 02 · 流媒体/ });
   await demoNode.click();
   await expect(demoNode).toHaveAttribute('aria-pressed', 'true');
@@ -349,6 +381,9 @@ test('authenticated REST and WebSocket state survive reload only after remember 
     page.getByText('Browser WebSocket verification message', { exact: true }),
   ).toBeVisible();
   await navigate(page, '代理');
+  await expect(
+    page.getByRole('checkbox', { name: '切换后关闭旧连接', exact: true }),
+  ).not.toBeChecked();
   const modes = page.getByRole('group', { name: '代理模式' });
   await modes.getByRole('button', { name: '全局', exact: true }).click();
   await expect(modes.getByRole('button', { name: '全局', exact: true })).toHaveAttribute(
@@ -375,6 +410,7 @@ test('authenticated REST and WebSocket state survive reload only after remember 
     authorization: `Bearer ${secret}`,
     body: { name: 'Tokyo B' },
   });
+  expect(api.calls.filter((call) => call.path.startsWith('/connections'))).toHaveLength(0);
   await navigate(page, '概览');
   await expect(page.getByRole('combobox', { name: '首页代理组成员', exact: true })).toHaveValue(
     'Tokyo B',
@@ -411,6 +447,95 @@ test('authenticated REST and WebSocket state survive reload only after remember 
   await expect
     .poll(() => api.calls.slice(requestsBeforeReload).some((call) => call.path === '/version'))
     .toBe(true);
+});
+
+test('opted-in proxy cleanup survives reload and closes only the old member of the selected group from Home', async ({
+  page,
+}) => {
+  const oldId = 'old / connection #1';
+  const api = await mockController(page, {
+    connectionChains: {
+      [oldId]: ['Tokyo A', groupName],
+      'other-group': ['Tokyo A', 'Other group'],
+      'new-member': ['Tokyo B', groupName],
+      'nonadjacent-group': ['Tokyo A', 'Inner group', groupName],
+    },
+  });
+  await page.goto('/');
+  await connect(page, true);
+  await navigate(page, '代理');
+  const closeOnSwitch = page.getByRole('checkbox', { name: '切换后关闭旧连接', exact: true });
+  await expect(closeOnSwitch).not.toBeChecked();
+  await closeOnSwitch.check();
+  await page.reload();
+  await expect(page.locator('.connection-status')).toHaveText('内核已连接');
+  await expect(closeOnSwitch).toBeChecked();
+  await navigate(page, '概览');
+  const member = page.getByRole('combobox', { name: '首页代理组成员', exact: true });
+  await expect(member).toHaveValue('Tokyo A');
+  await member.selectOption('Tokyo B');
+  await expect(member).toHaveValue('Tokyo B');
+  await expect(page.locator('.toast').filter({ hasText: '已关闭 1 条旧连接' })).toBeVisible();
+  expect(api.calls.filter((call) => call.method === 'DELETE')).toEqual([
+    {
+      method: 'DELETE',
+      path: `/connections/${encodeURIComponent(oldId)}`,
+      authorization: `Bearer ${secret}`,
+      body: null,
+    },
+  ]);
+  expect(api.snapshot.connections?.map(({ id }) => id)).toEqual([
+    'other-group',
+    'new-member',
+    'nonadjacent-group',
+  ]);
+  await expect(
+    page.locator('.stat-card').filter({ hasText: '活跃连接' }).locator('.stat-value'),
+  ).toHaveText('3个');
+});
+
+test('a rejected proxy selection never closes connections with cleanup enabled', async ({
+  page,
+}) => {
+  const api = await mockController(page, { rejectSelection: true });
+  await page.goto('/');
+  await connect(page);
+  await navigate(page, '代理');
+  await page.getByRole('checkbox', { name: '切换后关闭旧连接', exact: true }).check();
+  await page.getByRole('button', { name: /^Tokyo B，/ }).click();
+  await expect(
+    page.locator('.toast').filter({ hasText: 'Proxy selection rejected' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Tokyo A，/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(api.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0);
+  expect(api.snapshot.connections).toHaveLength(1);
+});
+
+test('a cleanup failure preserves the successful selection and reports the remaining old connection', async ({
+  page,
+}) => {
+  const api = await mockController(page, { rejectCloseIds: ['browser-connection'] });
+  await page.goto('/');
+  await connect(page);
+  await navigate(page, '代理');
+  await page.getByRole('checkbox', { name: '切换后关闭旧连接', exact: true }).check();
+  await page.getByRole('button', { name: /^Tokyo B，/ }).click();
+  await expect(
+    page.locator('.toast').filter({ hasText: '已切换到 Tokyo B，旧连接清理未完成' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Tokyo B，/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(api.calls.filter((call) => call.method === 'DELETE')).toHaveLength(1);
+  expect(api.snapshot.connections).toHaveLength(1);
+  await navigate(page, '概览');
+  await expect(page.getByRole('combobox', { name: '首页代理组成员', exact: true })).toHaveValue(
+    'Tokyo B',
+  );
 });
 
 test('a session-only connection clears previous remembered credentials and does not reconnect on reload', async ({

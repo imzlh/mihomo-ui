@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Route,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Wifi,
   Zap,
@@ -30,9 +31,21 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useMihomo } from '../state/mihomo';
 import { bytes, relativeDate } from '../lib/format';
-import { Badge, PageHeader, Toggle } from '../components/ui';
+import { Badge, Modal, PageHeader, Toggle } from '../components/ui';
 import { TrafficChart } from '../components/TrafficChart';
-import type { ProxyMode, ProxyNode } from '../lib/types';
+import type { ProxyMode } from '../lib/types';
+import {
+  DEFAULT_HOME_PREFERENCES,
+  HOME_CARD_OPTIONS,
+  readHomePreferences,
+  writeHomePreferences,
+  type HomePreferences,
+  type HomeMemberSort,
+} from '../lib/preferences';
+import { resolveHomeExit, resolveHomeProvider, sortHomeMembers } from '../lib/home-proxies';
+import { useHomeDelay } from '../hooks/use-home-delay';
+import { usePageVisible } from '../hooks/use-page-visible';
+import { PREFERENCES_CHANGED } from '../lib/preference-events';
 import './home.css';
 
 const modes: Array<{ key: ProxyMode; name: string; description: string; icon: LucideIcon }> = [
@@ -40,7 +53,6 @@ const modes: Array<{ key: ProxyMode; name: string; description: string; icon: Lu
   { key: 'global', name: '全局模式', description: '遵循 GLOBAL 组选择', icon: Globe2 },
   { key: 'direct', name: '直连模式', description: '由内核直接连接目标', icon: ArrowUpRight },
 ];
-const groupTypes = new Set(['Selector', 'URLTest', 'Fallback', 'LoadBalance']);
 const defaultTestUrl = 'https://www.gstatic.com/generate_204';
 
 function readGroupPreference(scope: string): string {
@@ -51,25 +63,12 @@ function readGroupPreference(scope: string): string {
   }
 }
 
-function resolveExit(
-  proxies: Record<string, ProxyNode>,
-  initial: string,
-): { chain: ProxyNode[]; leaf?: ProxyNode; reason?: string } {
-  const chain: ProxyNode[] = [];
-  const visited = new Set<string>();
-  let name = initial;
-  while (name) {
-    if (visited.has(name)) return { chain, reason: '代理组存在循环引用' };
-    visited.add(name);
-    const proxy = proxies[name];
-    if (!proxy) return { chain, reason: `暂未获取到 ${name} 的信息` };
-    chain.push(proxy);
-    if (proxy.type === 'LoadBalance') return { chain, reason: '由内核为每条连接分配出口' };
-    if (!proxy.all && !groupTypes.has(proxy.type)) return { chain, leaf: proxy };
-    if (!proxy.now) return { chain, reason: '内核尚未返回当前组成员' };
-    name = proxy.now;
+function readProviderPreference(scope: string): string {
+  try {
+    return localStorage.getItem(`mihomo-verge.home-provider:${scope}`) ?? '';
+  } catch {
+    return '';
   }
-  return { chain, reason: '尚未选择代理组' };
 }
 
 function groupTypeLabel(type: string): string {
@@ -86,17 +85,25 @@ function latencyLabel(delay: number | undefined): string {
   return delay === undefined ? '未测试' : delay <= 0 ? '超时' : `${delay} ms`;
 }
 
-function ProxyExitCard() {
+function ProxyExitCard({
+  preferences,
+  onSortChange,
+  visible,
+}: {
+  preferences: HomePreferences;
+  onSortChange: (sort: HomeMemberSort) => void;
+  visible: boolean;
+}) {
   const state = useMihomo();
   const scope = state.demo ? 'demo' : (state.profile?.url ?? 'offline');
   const storedGroup = useMemo(() => readGroupPreference(scope), [scope]);
   const [preference, setPreference] = useState({ scope: '', name: '' });
-  const [pending, setPending] = useState<'select' | 'test' | null>(null);
-  const [measurement, setMeasurement] = useState<{
-    key: string;
-    delay?: number;
-    failed?: boolean;
-  } | null>(null);
+  useEffect(() => {
+    const sync = () => setPreference({ scope, name: readGroupPreference(scope) });
+    window.addEventListener(PREFERENCES_CHANGED, sync);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, sync);
+  }, [scope]);
+  const [pending, setPending] = useState(false);
   const groups = Object.values(state.proxies).filter(
     (proxy) => proxy.all && !proxy.hidden && proxy.name !== 'GLOBAL',
   );
@@ -110,27 +117,39 @@ function ProxyExitCard() {
       : (groups.find((item) => item.name === preferred) ??
         groups.find((item) => item.type === 'Selector') ??
         groups[0]);
-  const route = resolveExit(state.proxies, isDirect ? 'DIRECT' : (group?.name ?? ''));
+  const route = resolveHomeExit(state.proxies, isDirect ? 'DIRECT' : (group?.name ?? ''));
   const leaf = route.leaf;
   const automatic = group?.type === 'URLTest' || group?.type === 'Fallback';
   const selectable = group?.type === 'Selector' || automatic;
-  const containingProviders = Object.entries(state.providers).filter(
-    ([, provider]) =>
-      provider.vehicleType !== 'Compatible' &&
-      provider.proxies.some((node) => node.name === leaf?.name),
-  );
-  const declaredProvider = leaf?.['provider-name'];
-  const providerName =
-    declaredProvider && state.providers[declaredProvider]?.vehicleType !== 'Compatible'
-      ? declaredProvider
-      : containingProviders.length === 1
-        ? containingProviders[0]?.[0]
-        : undefined;
-  const ambiguousProvider = !declaredProvider && containingProviders.length > 1;
+  const source = resolveHomeProvider(leaf, state.providers, state.coreProxies);
+  const providerName = source.providerName;
   const testUrl = group?.testUrl || defaultTestUrl;
-  const measurementKey = JSON.stringify([scope, leaf?.name, providerName, testUrl]);
-  const currentMeasurement = measurement?.key === measurementKey ? measurement : null;
-  const delay = currentMeasurement ? currentMeasurement.delay : leaf?.history.at(-1)?.delay;
+  const measurementKey = JSON.stringify([
+    scope,
+    state.config?.mode,
+    route.chain.map((node) => node.name),
+    providerName,
+    testUrl,
+    group?.expectedStatus,
+  ]);
+  const testable =
+    state.connected && !!leaf && !/^(reject|pass)$/i.test(leaf.type) && !source.reason;
+  const { measurement, run: runDelay } = useHomeDelay({
+    client: state.client,
+    active: testable && visible && !state.demo && !pending,
+    autoDelay: preferences.autoDelay,
+    intervalMinutes: preferences.autoDelayMinutes,
+    identity: measurementKey,
+    name: leaf?.name,
+    providerName,
+    testUrl,
+    expectedStatus: group?.expectedStatus,
+    onError: state.notify,
+  });
+  const testing = measurement?.status === 'testing';
+  const failed = measurement?.status === 'error';
+  const delay =
+    measurement?.status === 'success' ? measurement.delay : source.node?.history.at(-1)?.delay;
   const delayTone =
     delay === undefined
       ? 'neutral'
@@ -139,12 +158,16 @@ function ProxyExitCard() {
         : delay >= 200
           ? 'orange'
           : 'green';
-  const canTest =
-    state.connected &&
-    !!leaf &&
-    !/^(reject|pass)$/i.test(leaf.type) &&
-    !ambiguousProvider &&
-    !pending;
+  const canTest = testable && visible && !pending && !testing;
+  const memberDelay = (name: string) => {
+    const member = resolveHomeExit(state.proxies, name).leaf;
+    const resolved = resolveHomeProvider(member, state.providers, state.coreProxies);
+    if (resolved.reason) return undefined;
+    return member?.name === leaf?.name && measurement?.status === 'success'
+      ? measurement.delay
+      : resolved.node?.history.at(-1)?.delay;
+  };
+  const members = sortHomeMembers(group?.all ?? [], preferences.memberSort, memberDelay);
 
   function chooseGroup(name: string) {
     setPreference({ scope, name });
@@ -158,32 +181,19 @@ function ProxyExitCard() {
   async function chooseMember(name: string) {
     if (!state.connected || !group || !selectable || pending) return;
     if (group.type === 'Selector' && (!name || name === group.now)) return;
-    setPending('select');
+    setPending(true);
     try {
       if (!name && automatic) await state.clearProxySelection(group.name);
       else if (group.all?.includes(name)) await state.selectProxy(group.name, name);
     } finally {
-      setPending(null);
+      setPending(false);
     }
   }
 
-  async function testExit() {
+  function testExit() {
     if (!canTest || !leaf) return;
     if (state.demo) return state.notify('演示模式展示的是示例延迟', 'info');
-    const client = state.client;
-    if (!client) return;
-    setPending('test');
-    try {
-      const success = await state.runAction(async () => {
-        const result = providerName
-          ? await client.providerProxyDelay(providerName, leaf.name, testUrl, 5000)
-          : await client.delay(leaf.name, testUrl, 5000, group?.expectedStatus);
-        setMeasurement({ key: measurementKey, delay: result.delay });
-      });
-      if (!success) setMeasurement({ key: measurementKey, failed: true });
-    } finally {
-      setPending(null);
-    }
+    void runDelay();
   }
 
   return (
@@ -252,12 +262,28 @@ function ProxyExitCard() {
                     {group.type === 'LoadBalance' ? '按连接分配' : '尚未选择'}
                   </option>
                 )}
-                {(group.all ?? []).map((name) => (
+                {members.map((name) => (
                   <option key={name} value={name} disabled={!state.proxies[name]}>
                     {automatic ? '固定 · ' : ''}
                     {name}
+                    {preferences.memberSort === 'delay' && ` · ${latencyLabel(memberDelay(name))}`}
                   </option>
                 ))}
+              </select>
+            </label>
+          )}
+          {group && (
+            <label className="home-sort-field">
+              <span>成员排序</span>
+              <select
+                className="field"
+                aria-label="首页成员排序"
+                value={preferences.memberSort}
+                onChange={(event) => onSortChange(event.target.value as HomeMemberSort)}
+              >
+                <option value="default">默认顺序</option>
+                <option value="delay">延迟优先</option>
+                <option value="name">名称顺序</option>
               </select>
             </label>
           )}
@@ -276,7 +302,8 @@ function ProxyExitCard() {
                       : '出口暂不可用')}
               </strong>
               <span className="home-exit-meta">
-                {leaf ? [leaf.type, providerName].filter(Boolean).join(' · ') : route.reason}
+                {source.reason ??
+                  (leaf ? [leaf.type, providerName].filter(Boolean).join(' · ') : route.reason)}
               </span>
             </div>
           </div>
@@ -296,28 +323,29 @@ function ProxyExitCard() {
           <div className="home-card-row">
             <span>内核延迟</span>
             <div className="home-row-actions">
-              <Badge tone={currentMeasurement?.failed ? 'red' : delayTone}>
-                {pending === 'test'
-                  ? '测试中'
-                  : currentMeasurement?.failed
-                    ? '测试失败'
-                    : latencyLabel(delay)}
+              <Badge tone={failed ? 'red' : delayTone}>
+                {testing ? '测试中' : failed ? '测试失败' : latencyLabel(delay)}
               </Badge>
               <button
                 className="icon-button"
-                title={
-                  ambiguousProvider
-                    ? '多个代理集包含同名节点，暂无法确定测试对象'
-                    : `测试当前出口 · ${testUrl}`
-                }
+                title={source.reason ?? `测试当前出口 · ${testUrl}`}
                 aria-label="测试当前出口延迟"
                 disabled={!canTest}
                 onClick={() => void testExit()}
               >
-                <RefreshCw size={15} className={pending === 'test' ? 'spin' : ''} />
+                <RefreshCw size={15} className={testing ? 'spin' : ''} />
               </button>
             </div>
           </div>
+          {preferences.autoDelay && (
+            <span className="home-auto-delay-note">
+              {state.demo
+                ? '演示模式使用示例延迟'
+                : testable
+                  ? `自动测速 · 每 ${preferences.autoDelayMinutes} 分钟`
+                  : '自动测速暂停 · 暂无可测试的出口'}
+            </span>
+          )}
           <p className="home-card-note">
             {isDirect
               ? '直连模式由内核直接发起请求。'
@@ -335,10 +363,17 @@ function ProviderSummaryCard() {
   const state = useMihomo();
   const scope = state.demo ? 'demo' : (state.profile?.url ?? 'offline');
   const providers = Object.values(state.providers);
+  const storedProvider = useMemo(() => readProviderPreference(scope), [scope]);
   const [selection, setSelection] = useState({ scope: '', name: '' });
+  const preferredProvider = selection.scope === scope ? selection.name : storedProvider;
+  useEffect(() => {
+    const sync = () => setSelection({ scope, name: readProviderPreference(scope) });
+    window.addEventListener(PREFERENCES_CHANGED, sync);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, sync);
+  }, [scope]);
   const [updating, setUpdating] = useState(false);
   const provider =
-    providers.find((item) => selection.scope === scope && item.name === selection.name) ??
+    providers.find((item) => item.name === preferredProvider) ??
     providers.find((item) => item.vehicleType === 'HTTP') ??
     providers[0];
   const usage = provider?.subscriptionInfo;
@@ -402,7 +437,15 @@ function ProviderSummaryCard() {
               aria-label="首页代理集"
               value={provider.name}
               disabled={updating}
-              onChange={(event) => setSelection({ scope, name: event.target.value })}
+              onChange={(event) => {
+                const name = event.target.value;
+                setSelection({ scope, name });
+                try {
+                  localStorage.setItem(`mihomo-verge.home-provider:${scope}`, name);
+                } catch {
+                  state.notify('代理集选择仅在当前页面生效，浏览器未允许保存', 'info');
+                }
+              }}
             >
               {providers.map((item) => (
                 <option value={item.name} key={item.name}>
@@ -488,9 +531,136 @@ function ProviderSummaryCard() {
   );
 }
 
+function HomeSettings({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: HomePreferences;
+  onChange: (value: HomePreferences) => void;
+  onClose: () => void;
+}) {
+  const [intervalText, setIntervalText] = useState(String(value.autoDelayMinutes));
+  const interval = Number(intervalText);
+  const validInterval = Number.isInteger(interval) && interval >= 1 && interval <= 60;
+  return (
+    <Modal
+      title="首页设置"
+      description="自动保存到此浏览器，按控制器地址分别记忆。"
+      onClose={onClose}
+    >
+      <div className="home-settings-content">
+        <div className="home-settings-cards">
+          {HOME_CARD_OPTIONS.map(({ key, label }) => (
+            <div className="home-settings-row" key={key}>
+              <span>{label}</span>
+              <Toggle
+                label={`显示${label}`}
+                checked={value.cards[key]}
+                disabled={key === 'memory' && !value.cards.stats}
+                onChange={(checked) =>
+                  onChange({ ...value, cards: { ...value.cards, [key]: checked } })
+                }
+              />
+            </div>
+          ))}
+        </div>
+        <label className="home-settings-row">
+          <span>流量图表样式</span>
+          <select
+            className="field"
+            aria-label="流量图表样式"
+            value={value.chartStyle}
+            onChange={(event) =>
+              onChange({ ...value, chartStyle: event.target.value === 'line' ? 'line' : 'area' })
+            }
+          >
+            <option value="area">面积图</option>
+            <option value="line">折线图</option>
+          </select>
+        </label>
+        <div className="home-settings-row">
+          <span>自动测试当前出口延迟</span>
+          <Toggle
+            label="自动测试当前出口延迟"
+            checked={value.autoDelay}
+            onChange={(autoDelay) => onChange({ ...value, autoDelay })}
+          />
+        </div>
+        <label className="home-settings-row">
+          <span>测速间隔</span>
+          <span className="home-interval-field">
+            <input
+              className="field"
+              type="number"
+              aria-label="自动测速间隔（分钟）"
+              min={1}
+              max={60}
+              step={1}
+              value={intervalText}
+              aria-invalid={!validInterval}
+              onChange={(event) => {
+                setIntervalText(event.target.value);
+                const minutes = event.target.valueAsNumber;
+                if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) {
+                  onChange({ ...value, autoDelayMinutes: minutes });
+                }
+              }}
+              onBlur={() => setIntervalText(String(value.autoDelayMinutes))}
+            />
+            分钟
+          </span>
+        </label>
+        <p className="home-settings-note">
+          {validInterval
+            ? '仅在首页可见且显示代理组出口卡片时自动测速。演示模式使用示例延迟。'
+            : '请输入 1 至 60 的整数，当前继续使用已保存的间隔。'}
+        </p>
+        <div className="home-settings-actions">
+          <button
+            className="button"
+            onClick={() => {
+              onChange({
+                ...DEFAULT_HOME_PREFERENCES,
+                cards: { ...DEFAULT_HOME_PREFERENCES.cards },
+              });
+              setIntervalText(String(DEFAULT_HOME_PREFERENCES.autoDelayMinutes));
+            }}
+          >
+            恢复默认
+          </button>
+          <button className="button primary" onClick={onClose}>
+            完成
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function Home({ onConnect }: { onConnect: () => void }) {
   const state = useMihomo();
   const [pending, setPending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const scope = state.demo ? 'demo' : (state.profile?.url ?? 'offline');
+  const storedPreferences = useMemo(() => readHomePreferences(scope), [scope]);
+  const [localPreferences, setLocalPreferences] = useState<{
+    scope: string;
+    value: HomePreferences;
+  } | null>(null);
+  useEffect(() => {
+    const sync = () => setLocalPreferences({ scope, value: readHomePreferences(scope) });
+    window.addEventListener(PREFERENCES_CHANGED, sync);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, sync);
+  }, [scope]);
+  const preferences =
+    localPreferences?.scope === scope ? localPreferences.value : storedPreferences;
+  const cards = preferences.cards;
+  const visible = usePageVisible();
+  function savePreferences(value: HomePreferences) {
+    setLocalPreferences({ scope, value });
+    writeHomePreferences(scope, value);
+  }
   const groupCount = Object.values(state.proxies).filter(
     (proxy) => proxy.all && proxy.name !== 'GLOBAL',
   ).length;
@@ -564,6 +734,10 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
             weekday: 'long',
           })}
         </span>
+        <button className="button small" onClick={() => setSettingsOpen(true)}>
+          <SlidersHorizontal size={15} />
+          首页设置
+        </button>
         <button
           className="button small"
           onClick={() => void refresh()}
@@ -620,175 +794,235 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
           </div>
         </section>
       )}
-      <section className="stats-grid" aria-label="实时网络指标">
-        {stats.map((stat) => (
-          <article className="stat-card" key={stat.label}>
-            <div className="stat-header">
-              <span>{stat.label}</span>
-              <span className={`stat-icon ${stat.color}`}>
-                <stat.icon size={19} />
-              </span>
-            </div>
-            <div className="stat-value">
-              {stat.value}
-              <small>{stat.unit}</small>
-            </div>
-            <div className="stat-footer">
-              <span>{stat.sub}</span>
-              <span>{stat.total}</span>
-            </div>
-          </article>
-        ))}
-      </section>
-      <div className="overview-main-grid">
-        <section className="panel traffic-panel">
-          <div className="panel-header">
-            <div className="panel-title">
-              <Activity size={18} />
-              <h2>流量趋势</h2>
-              <span className={`live-label ${state.live ? '' : 'inactive'}`}>
-                <span className={`status-dot ${state.live ? '' : 'offline'}`} />
-                {state.live ? '实时' : state.connected ? '重连中' : '未连接'}
-              </span>
-            </div>
-            <div className="chart-legend">
-              <span>
-                <i className="legend-dot download" />
-                下载
-              </span>
-              <span>
-                <i className="legend-dot upload" />
-                上传
-              </span>
-              <span className="chart-period">最近 60 秒</span>
-            </div>
-          </div>
-          <TrafficChart data={state.history} />
-          <div className="traffic-summary">
-            <span>
-              <ArrowDown size={13} />
-              下载总量{' '}
-              <strong>{state.connected ? bytes(state.snapshot.downloadTotal) : '—'}</strong>
-            </span>
-            <span>
-              <ArrowUp size={13} />
-              上传总量 <strong>{state.connected ? bytes(state.snapshot.uploadTotal) : '—'}</strong>
-            </span>
-            <span className="muted">内核累计</span>
-          </div>
+      {cards.stats && (
+        <section
+          className={`stats-grid${cards.memory ? '' : ' without-memory'}`}
+          aria-label="实时网络指标"
+        >
+          {stats
+            .filter((stat) => cards.memory || stat.icon !== Cpu)
+            .map((stat) => (
+              <article className="stat-card" key={stat.label}>
+                <div className="stat-header">
+                  <span>{stat.label}</span>
+                  <span className={`stat-icon ${stat.color}`}>
+                    <stat.icon size={19} />
+                  </span>
+                </div>
+                <div className="stat-value">
+                  {stat.value}
+                  <small>{stat.unit}</small>
+                </div>
+                <div className="stat-footer">
+                  <span>{stat.sub}</span>
+                  <span>{stat.total}</span>
+                </div>
+              </article>
+            ))}
         </section>
-        <section className="panel mode-panel">
-          <div className="panel-header">
-            <div className="panel-title">
-              <Route size={18} />
-              <h2>出站模式</h2>
-            </div>
-            <Badge tone="purple">{state.config?.mode.toUpperCase() ?? 'OFFLINE'}</Badge>
-          </div>
-          <div className="mode-options">
-            {modes.map(({ key, name, description, icon: Icon }) => (
-              <button
-                key={key}
-                className={`mode-option ${state.config?.mode === key ? 'selected' : ''}`}
-                disabled={coreDisabled}
-                onClick={() => void changeMode(key)}
-              >
-                <span className="mode-icon">
-                  <Icon size={20} />
+      )}
+      {(cards.traffic || cards.mode) && (
+        <div className="overview-main-grid">
+          {cards.traffic && (
+            <section className="panel traffic-panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <Activity size={18} />
+                  <h2>流量趋势</h2>
+                  <span className={`live-label ${state.live ? '' : 'inactive'}`}>
+                    <span className={`status-dot ${state.live ? '' : 'offline'}`} />
+                    {state.live ? '实时' : state.connected ? '重连中' : '未连接'}
+                  </span>
+                </div>
+                <div className="chart-legend">
+                  <span>
+                    <i className="legend-dot download" />
+                    下载
+                  </span>
+                  <span>
+                    <i className="legend-dot upload" />
+                    上传
+                  </span>
+                  <span className="chart-period">最近 60 秒</span>
+                  <button
+                    className="button small chart-style-button"
+                    aria-label="切换流量图表样式"
+                    title={`切换为${preferences.chartStyle === 'area' ? '折线图' : '面积图'}`}
+                    onClick={() =>
+                      savePreferences({
+                        ...preferences,
+                        chartStyle: preferences.chartStyle === 'area' ? 'line' : 'area',
+                      })
+                    }
+                  >
+                    {preferences.chartStyle === 'area' ? '面积图' : '折线图'}
+                  </button>
+                </div>
+              </div>
+              <TrafficChart data={state.history} style={preferences.chartStyle} paused={!visible} />
+              <div className="traffic-summary">
+                <span>
+                  <ArrowDown size={13} />
+                  下载总量{' '}
+                  <strong>{state.connected ? bytes(state.snapshot.downloadTotal) : '—'}</strong>
                 </span>
                 <span>
-                  <strong>{name}</strong>
-                  <small>{description}</small>
+                  <ArrowUp size={13} />
+                  上传总量{' '}
+                  <strong>{state.connected ? bytes(state.snapshot.uploadTotal) : '—'}</strong>
                 </span>
-                <span className="mode-check">
-                  {state.config?.mode === key && <Check size={12} strokeWidth={3} />}
+                <span className="muted">内核累计</span>
+              </div>
+            </section>
+          )}
+          {cards.mode && (
+            <section className="panel mode-panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <Route size={18} />
+                  <h2>出站模式</h2>
+                </div>
+                <Badge tone="purple">{state.config?.mode.toUpperCase() ?? 'OFFLINE'}</Badge>
+              </div>
+              <div className="mode-options">
+                {modes.map(({ key, name, description, icon: Icon }) => (
+                  <button
+                    key={key}
+                    className={`mode-option ${state.config?.mode === key ? 'selected' : ''}`}
+                    disabled={coreDisabled}
+                    onClick={() => void changeMode(key)}
+                  >
+                    <span className="mode-icon">
+                      <Icon size={20} />
+                    </span>
+                    <span>
+                      <strong>{name}</strong>
+                      <small>{description}</small>
+                    </span>
+                    <span className="mode-check">
+                      {state.config?.mode === key && <Check size={12} strokeWidth={3} />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="mode-footnote">
+                <ShieldCheck size={14} />
+                {state.demo ? '仅影响演示配置' : '运行配置实时生效'}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+      {(cards.proxy || cards.providers || cards.core) && (
+        <div className="overview-bottom-grid">
+          {cards.proxy && (
+            <ProxyExitCard
+              key={`proxy:${scope}`}
+              preferences={preferences}
+              visible={visible}
+              onSortChange={(memberSort) => savePreferences({ ...preferences, memberSort })}
+            />
+          )}
+          {cards.providers && <ProviderSummaryCard key={`providers:${scope}`} />}
+          {cards.core && (
+            <section className="panel quick-panel home-detail-card">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <CircuitBoard size={18} />
+                  <h2>内核配置</h2>
+                </div>
+                <Link className="icon-button" to="/settings" aria-label="更多内核设置">
+                  <ChevronRight size={18} />
+                </Link>
+              </div>
+              <div className="quick-setting">
+                <span>
+                  <Radio size={16} />
+                  TUN 模式
                 </span>
-              </button>
-            ))}
+                <Toggle
+                  label="TUN 模式"
+                  checked={state.config?.tun?.enable ?? false}
+                  disabled={coreDisabled || !state.config?.tun}
+                  onChange={(enable) => {
+                    setPending(true);
+                    void state.patchConfig({ tun: { enable } }).finally(() => setPending(false));
+                  }}
+                />
+              </div>
+              <div className="quick-setting">
+                <span>
+                  <Globe2 size={16} />
+                  允许局域网
+                </span>
+                <Toggle
+                  label="允许局域网"
+                  checked={state.config?.['allow-lan'] ?? false}
+                  disabled={coreDisabled}
+                  onChange={(value) => {
+                    setPending(true);
+                    void state.patchConfig({ 'allow-lan': value }).finally(() => setPending(false));
+                  }}
+                />
+              </div>
+              <div className="quick-setting">
+                <span>
+                  <Network size={16} />
+                  混合端口
+                </span>
+                <code>{state.config?.['mixed-port'] ?? '—'}</code>
+              </div>
+              <div className="quick-setting">
+                <span>
+                  <Route size={16} />
+                  路由规则
+                </span>
+                <Link to="/rules" className="home-count-link">
+                  {state.connected ? `${state.rules.length} 条` : '—'}
+                  <ChevronRight size={14} />
+                </Link>
+              </div>
+              <div className="quick-setting">
+                <span>
+                  <Layers3 size={16} />
+                  代理组
+                </span>
+                <Link to="/proxies" className="home-count-link">
+                  {state.connected ? `${groupCount} 个` : '—'}
+                  <ChevronRight size={14} />
+                </Link>
+              </div>
+              <div className="core-footer">
+                <span className={`status-dot ${state.connected ? '' : 'offline'}`} />
+                <span>{state.connected ? `Mihomo ${state.version}` : '等待连接 Mihomo'}</span>
+                <Badge>{state.demo ? 'DEMO' : 'CORE'}</Badge>
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+      {!cards.stats &&
+        !cards.traffic &&
+        !cards.mode &&
+        !cards.proxy &&
+        !cards.providers &&
+        !cards.core && (
+          <div className="panel compact-empty">
+            <SlidersHorizontal size={26} strokeWidth={1.3} />
+            <p>首页卡片已隐藏</p>
+            <button className="button small" onClick={() => setSettingsOpen(true)}>
+              设置显示卡片
+            </button>
           </div>
-          <div className="mode-footnote">
-            <ShieldCheck size={14} />
-            {state.demo ? '仅影响演示配置' : '运行配置实时生效'}
-          </div>
-        </section>
-      </div>
-      <div className="overview-bottom-grid">
-        <ProxyExitCard />
-        <ProviderSummaryCard />
-        <section className="panel quick-panel home-detail-card">
-          <div className="panel-header">
-            <div className="panel-title">
-              <CircuitBoard size={18} />
-              <h2>内核配置</h2>
-            </div>
-            <Link className="icon-button" to="/settings" aria-label="更多内核设置">
-              <ChevronRight size={18} />
-            </Link>
-          </div>
-          <div className="quick-setting">
-            <span>
-              <Radio size={16} />
-              TUN 模式
-            </span>
-            <Toggle
-              label="TUN 模式"
-              checked={state.config?.tun?.enable ?? false}
-              disabled={coreDisabled || !state.config?.tun}
-              onChange={(enable) => {
-                setPending(true);
-                void state.patchConfig({ tun: { enable } }).finally(() => setPending(false));
-              }}
-            />
-          </div>
-          <div className="quick-setting">
-            <span>
-              <Globe2 size={16} />
-              允许局域网
-            </span>
-            <Toggle
-              label="允许局域网"
-              checked={state.config?.['allow-lan'] ?? false}
-              disabled={coreDisabled}
-              onChange={(value) => {
-                setPending(true);
-                void state.patchConfig({ 'allow-lan': value }).finally(() => setPending(false));
-              }}
-            />
-          </div>
-          <div className="quick-setting">
-            <span>
-              <Network size={16} />
-              混合端口
-            </span>
-            <code>{state.config?.['mixed-port'] ?? '—'}</code>
-          </div>
-          <div className="quick-setting">
-            <span>
-              <Route size={16} />
-              路由规则
-            </span>
-            <Link to="/rules" className="home-count-link">
-              {state.connected ? `${state.rules.length} 条` : '—'}
-              <ChevronRight size={14} />
-            </Link>
-          </div>
-          <div className="quick-setting">
-            <span>
-              <Layers3 size={16} />
-              代理组
-            </span>
-            <Link to="/proxies" className="home-count-link">
-              {state.connected ? `${groupCount} 个` : '—'}
-              <ChevronRight size={14} />
-            </Link>
-          </div>
-          <div className="core-footer">
-            <span className={`status-dot ${state.connected ? '' : 'offline'}`} />
-            <span>{state.connected ? `Mihomo ${state.version}` : '等待连接 Mihomo'}</span>
-            <Badge>{state.demo ? 'DEMO' : 'CORE'}</Badge>
-          </div>
-        </section>
-      </div>
+        )}
+      {settingsOpen && (
+        <HomeSettings
+          key={scope}
+          value={preferences}
+          onChange={savePreferences}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }
