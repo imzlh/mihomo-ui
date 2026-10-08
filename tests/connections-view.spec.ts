@@ -132,7 +132,7 @@ async function sampleTime(page: Page, elapsed: number) {
 }
 
 async function connect(page: Page, url = controller) {
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('控制器地址', { exact: false }).fill(`${url}/`);
   await dialog.getByRole('checkbox').check();

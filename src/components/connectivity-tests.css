@@ -1,5 +1,5 @@
 .connectivity-panel {
-  padding: 20px;
+  padding: 16px;
   min-width: 0;
 }
 .connectivity-heading,
@@ -17,13 +17,19 @@
   padding: 7px 10px;
 }
 .connectivity-outlet {
-  margin: 16px 0 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 14px 0 12px;
 }
 .connectivity-outlet label {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 12px;
+  min-width: 0;
+  flex: 0 1 420px;
 }
 .connectivity-panel .connectivity-outlet .field {
   width: min(100%, 370px);
@@ -36,7 +42,7 @@
   color: var(--muted);
 }
 .connectivity-outlet p {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 11px;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -46,31 +52,30 @@
 }
 .connectivity-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  column-gap: 24px;
+  border-top: 1px solid var(--border);
 }
 .connectivity-site {
   min-width: 0;
 }
 .connectivity-site-button {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  grid-template-rows: auto 24px;
-  column-gap: 10px;
-  row-gap: 3px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
   width: 100%;
-  min-height: 72px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
+  min-height: 46px;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
   text-align: left;
   cursor: pointer;
 }
 .connectivity-site-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--subtle);
 }
 .connectivity-site-button:disabled {
   cursor: default;
@@ -82,8 +87,11 @@
 .connectivity-site-icon {
   display: grid;
   place-items: center;
-  grid-row: 1 / 3;
-  color: var(--accent);
+  color: var(--muted);
+}
+.connectivity-site-icon svg {
+  width: 16px;
+  height: 16px;
 }
 .connectivity-site-name {
   min-width: 0;
@@ -95,8 +103,9 @@
 }
 .connectivity-site-result {
   font-family: var(--font-mono, monospace);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 .connectivity-site-result.good {
   color: var(--green);
@@ -240,10 +249,15 @@
   }
   .connectivity-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 14px;
   }
   .connectivity-site-button {
-    padding: 9px;
+    padding: 10px 0;
+    grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 6px;
+  }
+  .connectivity-site-icon {
+    display: none;
   }
   .connectivity-manager {
     padding: 0 16px 20px;

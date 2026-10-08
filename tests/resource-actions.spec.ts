@@ -233,7 +233,7 @@ test('provider measurements survive modal and route changes, preserve response v
   await expect(row.getByRole('button')).toBeEnabled();
 
   await dialog.getByRole('button', { name: '关闭弹窗', exact: true }).click();
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const connection = page.getByRole('dialog');
   await connection.getByLabel('控制器地址', { exact: false }).fill(otherController);
   await connection.getByPlaceholder('输入内核设置的 secret').fill('');

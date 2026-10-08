@@ -260,7 +260,7 @@ async function mockController(
 }
 
 async function openConnection(page: Page) {
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: '连接到 Mihomo' })).toBeVisible();
   return dialog;
@@ -274,6 +274,9 @@ async function connect(page: Page, remember = false) {
   await dialog.getByRole('button', { name: '连接内核', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('.connection-status')).toHaveText('内核已连接');
+  await expect(page.getByRole('button', { name: '切换内核', exact: true })).toContainText(
+    'Mihomo 内核',
+  );
 }
 
 async function navigate(page: Page, name: string) {
@@ -356,6 +359,114 @@ test('explicit demo supports navigation, mode and node selection without control
     fullPage: true,
     animations: 'disabled',
   });
+});
+
+test('logo opens the connection form to its right and keeps demo switch feedback visible', async ({
+  page,
+}) => {
+  await page.goto('/#/rules');
+  const currentUrl = page.url();
+  const trigger = page.getByRole('button', { name: '切换内核', exact: true });
+  const panel = page.getByRole('dialog', { name: '连接到 Mihomo', exact: true });
+  await expect(trigger).toContainText('连接内核');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+  await trigger.click();
+  await expect(panel).toBeVisible();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await expect(panel.getByLabel('控制器地址', { exact: false })).toBeFocused();
+  await expect(panel.getByPlaceholder('输入内核设置的 secret')).toBeVisible();
+  await expect(panel.getByRole('button', { name: '连接内核', exact: true })).toBeEnabled();
+  const footer = page.locator('.sidebar-footer');
+  await expect(footer).toContainText('WEB UI');
+  await expect(footer).toContainText('v0.1.0');
+  await expect(footer.getByRole('link', { name: 'Mihomo GitHub', exact: true })).toHaveAttribute(
+    'href',
+    'https://github.com/MetaCubeX/mihomo',
+  );
+  await expect(page.getByRole('link', { name: 'Mihomo GitHub', exact: true })).toHaveCount(1);
+  await expect(panel.getByRole('link', { name: 'Mihomo GitHub', exact: true })).toHaveCount(0);
+  await expect(panel).not.toContainText('WEB UI');
+  await expect(page).toHaveURL(currentUrl);
+  const triggerBounds = await trigger.boundingBox();
+  const panelBounds = await panel.boundingBox();
+  expect(triggerBounds).not.toBeNull();
+  expect(panelBounds).not.toBeNull();
+  expect(panelBounds!.x).toBeGreaterThanOrEqual(triggerBounds!.x + triggerBounds!.width);
+
+  await page.keyboard.press('Escape');
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toBeFocused();
+
+  await trigger.press('ArrowRight');
+  await expect(panel.getByLabel('控制器地址', { exact: false })).toBeFocused();
+  await panel.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  const demo = panel.getByRole('switch', { name: '演示模式', exact: true });
+  await expect(demo).toHaveAttribute('aria-checked', 'false');
+  await demo.click();
+  await expect(demo).toHaveAttribute('aria-checked', 'true');
+  await expect(panel).toBeVisible();
+  await expect(trigger).toContainText('演示内核');
+  await expect(page.locator('.demo-banner')).toBeVisible();
+  await expect(page).toHaveURL(currentUrl);
+
+  await page.keyboard.press('Escape');
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(panel.getByLabel('控制器地址', { exact: false })).toBeVisible();
+  await expect(demo).toHaveAttribute('aria-checked', 'true');
+  await expect(page).toHaveURL(currentUrl);
+  await demo.click();
+  await expect(demo).toHaveAttribute('aria-checked', 'false');
+  await expect(panel).toBeVisible();
+  await expect(trigger).toContainText('连接内核');
+  await expect(page.locator('.demo-banner')).toHaveCount(0);
+  await expect(page).toHaveURL(currentUrl);
+  await page.keyboard.press('Escape');
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+});
+
+test('kernel connection form fits a narrow viewport and closes on Escape and outside clicks', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/#/rules');
+  await page.getByRole('button', { name: '打开导航菜单', exact: true }).click();
+  const trigger = page.getByRole('button', { name: '切换内核', exact: true });
+  const panel = page.getByRole('dialog', { name: '连接到 Mihomo', exact: true });
+  await trigger.click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByLabel('控制器地址', { exact: false })).toBeFocused();
+  const bounds = await panel.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(568);
+  await expect
+    .poll(() => panel.evaluate((element) => element.scrollWidth - element.clientWidth))
+    .toBeLessThanOrEqual(1);
+  const demo = panel.getByRole('switch', { name: '演示模式', exact: true });
+  await demo.scrollIntoViewIfNeeded();
+  await expect(demo).toBeInViewport();
+  await expectNoOverflow(page);
+  await page.keyboard.press('Escape');
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await page.mouse.click(1, 567);
+  await expect(panel).not.toBeVisible();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(page).toHaveURL(/#\/rules$/);
+  await expectNoOverflow(page);
 });
 
 test('authenticated REST and WebSocket state survive reload only after remember is selected', async ({
@@ -639,7 +750,7 @@ test('cancelling a delayed connection prevents the response from connecting or s
   await dialog.getByRole('button', { name: '连接内核', exact: true }).click();
   await expect.poll(() => api.calls.some((call) => call.path === '/version')).toBe(true);
   await expect(dialog.getByRole('button', { name: '正在连接…' })).toBeDisabled();
-  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭弹窗', exact: true }).click();
   releaseVersion();
   await expect(dialog).not.toBeVisible();
   await page.waitForLoadState('networkidle');

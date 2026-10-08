@@ -183,7 +183,7 @@ async function navigate(page: Page, name: string) {
 }
 
 async function connect(page: Page, target: string) {
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '连接到 Mihomo', exact: true });
   await dialog.getByLabel('控制器地址', { exact: false }).fill(target);
   await dialog.getByPlaceholder('输入内核设置的 secret').fill(secret);

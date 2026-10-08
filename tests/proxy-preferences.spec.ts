@@ -154,7 +154,7 @@ test('proxy display preferences persist by controller, restore immediately and r
       },
     },
   );
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   await page.getByRole('dialog').getByLabel('控制器地址', { exact: false }).fill(otherController);
   await page.getByRole('dialog').getByRole('button', { name: '连接内核', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);

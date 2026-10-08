@@ -18,19 +18,17 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 0;
+  padding: 13px 0;
   border-top: 1px solid var(--border);
 }
 .maintenance-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 20px;
+  height: 24px;
   flex: none;
-  border-radius: 9px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--muted);
 }
 .maintenance-copy {
   flex: 1;
@@ -53,9 +51,8 @@
   justify-content: center;
 }
 .maintenance-notice {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-left: 2px solid currentColor;
   font-size: 12px;
   line-height: 1.8;
   overflow-wrap: anywhere;
@@ -96,9 +93,9 @@
     gap: 10px;
   }
   .maintenance-copy {
-    flex-basis: calc(100% - 44px);
+    flex-basis: calc(100% - 30px);
   }
   .maintenance-row > .button {
-    margin-left: 44px;
+    margin-left: 30px;
   }
 }

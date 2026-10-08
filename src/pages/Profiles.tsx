@@ -983,7 +983,7 @@ function SessionProfiles() {
                       />
                     )}
                     <button
-                      className={`panel profile-card${selected?.id === item.id ? ' is-selected' : ''}`}
+                      className={`profile-card${selected?.id === item.id ? ' is-selected' : ''}`}
                       aria-label={`选择配置 ${item.name}`}
                       aria-pressed={selected?.id === item.id}
                       onClick={() => {
@@ -1023,7 +1023,7 @@ function SessionProfiles() {
             )}
           </section>
           {selected && (
-            <section className="panel profile-detail" aria-label="配置详情">
+            <section className="profile-detail" aria-label="配置详情">
               <div className="profile-detail-heading">
                 <div>
                   <span className="profile-eyebrow">

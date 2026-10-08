@@ -1,83 +1,87 @@
 .diagnostics-page {
-  font-size: 14px;
+  font-size: 13px;
 }
-.diagnostics-page .page-header p,
-.diagnostics-page .button,
-.diagnostics-page .field,
-.diagnostics-page .info-note,
-.diagnostics-page .error-note {
-  font-size: 14px;
-}
-.diagnostics-page .badge {
-  font-size: 12px;
-}
-.diagnostics-query-panel,
-.diagnostics-cache-panel {
-  padding: 24px;
+.diagnostics-page > .panel {
+  padding: 18px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .diagnostics-heading {
   display: flex;
   align-items: flex-start;
-  gap: 13px;
+  gap: 9px;
 }
 .diagnostics-section-icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  width: 20px;
+  height: 22px;
+  color: var(--muted);
+}
+.diagnostics-section-icon svg {
+  width: 18px;
+  height: 18px;
 }
 .diagnostics-heading h2,
 .diagnostics-result-header h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 600;
 }
 .diagnostics-heading p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
 }
 .diagnostics-query-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 145px auto;
+  grid-template-columns: minmax(0, 1fr) 125px auto;
   align-items: end;
-  gap: 15px;
-  margin-top: 24px;
+  gap: 12px;
+  margin-top: 16px;
 }
 .diagnostics-field {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 9px;
+  gap: 6px;
 }
 .diagnostics-field > span {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
 }
 .diagnostics-field .field {
   min-width: 0;
   width: 100%;
-  min-height: 43px;
-  padding: 10px 12px;
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 13px;
 }
 .diagnostics-query-actions {
   display: flex;
   gap: 8px;
 }
 .diagnostics-query-actions .button {
-  min-height: 43px;
+  min-height: 36px;
   justify-content: center;
 }
 .diagnostics-note {
-  margin: 18px 0 0;
+  margin: 12px 0 0;
 }
 .diagnostics-page > .diagnostics-note {
   margin: 0;
+  padding: 0 0 0 10px;
+  border: 0;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
 }
 .diagnostics-query-status {
   display: flex;
@@ -95,15 +99,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 23px 24px 14px;
+  padding: 0 0 12px;
 }
 .diagnostics-result-header p {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  margin: 7px 0 0;
+  margin: 5px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .diagnostics-response-info {
@@ -111,21 +115,21 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 9px;
-  padding: 0 24px 18px;
+  padding: 0 0 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
 }
 .diagnostics-record-table {
   min-width: 640px;
-  font-size: 14px;
-}
-.diagnostics-record-table th {
-  padding: 12px 16px;
   font-size: 13px;
 }
+.diagnostics-record-table th {
+  padding: 10px 12px;
+  font-size: 12px;
+}
 .diagnostics-record-table td {
-  padding: 16px;
+  padding: 12px;
   vertical-align: top;
 }
 .diagnostics-sort-button {
@@ -165,7 +169,7 @@
   line-height: 1.65;
 }
 .diagnostics-result-footnote {
-  padding: 16px 24px;
+  padding: 12px 0 0;
   margin: 0;
   border-top: 1px solid var(--border);
   color: var(--muted);
@@ -174,52 +178,49 @@
 }
 .diagnostics-cache-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 22px;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 14px;
 }
 .diagnostics-cache-card {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-content: start;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 11px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  background: var(--subtle);
+  border-top: 1px solid var(--border);
+  padding: 13px 0;
 }
 .diagnostics-cache-card > svg {
-  color: var(--accent);
-  margin-top: 2px;
+  color: var(--muted);
+  width: 17px;
+  height: 17px;
 }
 .diagnostics-cache-card h3 {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   margin: 0;
 }
 .diagnostics-cache-card p {
-  margin: 7px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.75;
 }
 .diagnostics-cache-card > .button {
-  justify-self: start;
-  grid-column: 2;
-  margin-top: 3px;
+  justify-self: end;
+  grid-column: 3;
+  font-size: 12px;
 }
 .diagnostics-cache-hint {
-  margin: 17px 0 0;
+  margin: 8px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
 .diagnostics-success-note {
-  border: 1px solid color-mix(in srgb, var(--green) 25%, var(--border));
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-left: 2px solid var(--green);
+  padding: 8px 12px;
   background: color-mix(in srgb, var(--green) 7%, var(--surface));
   color: var(--green);
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.8;
 }
 .diagnostics-confirm-target {
@@ -232,16 +233,7 @@
 .diagnostics-confirm-target span {
   color: var(--text);
 }
-.diagnostics-page .modal-head p {
-  font-size: 14px;
-}
-.diagnostics-page .empty-state p {
-  font-size: 14px;
-}
 @media (max-width: 900px) {
-  .diagnostics-cache-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .diagnostics-query-form {
     grid-template-columns: minmax(0, 1fr) 125px;
   }
@@ -250,10 +242,6 @@
   }
 }
 @media (max-width: 520px) {
-  .diagnostics-query-panel,
-  .diagnostics-cache-panel {
-    padding: 19px 17px;
-  }
   .diagnostics-query-form {
     gap: 12px;
     grid-template-columns: minmax(0, 1fr) 104px;
@@ -262,16 +250,14 @@
     flex: 1;
   }
   .diagnostics-result-header {
-    padding: 19px 17px 13px;
     align-items: flex-start;
   }
-  .diagnostics-response-info {
-    padding: 0 17px 16px;
-  }
-  .diagnostics-result-footnote {
-    padding: 14px 17px;
-  }
   .diagnostics-cache-card {
-    padding: 17px 14px;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 9px;
+  }
+  .diagnostics-cache-card > .button {
+    grid-column: 2;
+    justify-self: start;
   }
 }

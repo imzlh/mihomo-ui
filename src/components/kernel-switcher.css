@@ -1,0 +1,155 @@
+.kernel-switcher {
+  margin: -7px -2px 12px;
+}
+.kernel-switcher-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.kernel-switcher-trigger:hover,
+.kernel-switcher-trigger[aria-expanded='true'] {
+  background: var(--subtle);
+}
+.kernel-switcher-trigger > img {
+  flex-shrink: 0;
+}
+.kernel-switcher-brand {
+  min-width: 0;
+  flex: 1;
+}
+.kernel-switcher-brand > strong {
+  display: block;
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.7px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.kernel-switcher-brand > strong > span {
+  margin-left: 3px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.kernel-switcher-brand > small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.kernel-status-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.kernel-status-dot.connected {
+  background: var(--green);
+}
+.kernel-status-dot.connecting {
+  background: var(--orange);
+}
+.kernel-status-dot.error {
+  background: var(--red);
+}
+.kernel-switcher-chevron {
+  margin-left: auto;
+  color: var(--muted);
+}
+.kernel-switcher-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 35px #00000018;
+}
+.kernel-switcher-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kernel-switcher-heading h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.kernel-switcher-heading > .icon-button {
+  width: 26px;
+  height: 26px;
+  margin: -3px -3px -3px 0;
+}
+.kernel-switcher-panel .connection-form {
+  gap: 14px;
+  margin-top: 18px;
+}
+.kernel-switcher-panel .form-field {
+  gap: 6px;
+  font-size: 13px;
+}
+.kernel-switcher-panel .form-field input {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.kernel-switcher-panel .password-field input {
+  padding-right: 38px;
+}
+.kernel-switcher-panel .password-field > .icon-button {
+  top: 3px;
+  right: 4px;
+}
+.kernel-switcher-panel .checkbox-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.kernel-switcher-panel .form-actions > .button {
+  width: 100%;
+  min-height: 36px;
+  font-size: 13px;
+}
+.kernel-switcher-session {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.kernel-switcher-disconnect {
+  margin-top: 12px;
+}
+@media (min-width: 1001px) and (max-width: 1199px) {
+  .kernel-switcher-brand > strong {
+    font-size: 18px;
+  }
+}
+@media (min-width: 761px) and (max-width: 1000px) {
+  .kernel-switcher-trigger {
+    gap: 6px;
+  }
+  .kernel-switcher-brand > strong {
+    font-size: 17px;
+  }
+  .kernel-switcher-chevron {
+    width: 12px;
+  }
+}

@@ -267,7 +267,7 @@ export default function Providers() {
     }
   }
   return (
-    <div className="page-stack">
+    <div className="page-stack providers-page">
       <PageHeader title="资源" description="查看与更新内核已加载的代理集和规则集。">
         <button
           className="button"
@@ -375,56 +375,62 @@ export default function Providers() {
                     const compatible = provider.vehicleType.toLowerCase() === 'compatible';
                     const working = busy[name];
                     return (
-                      <article className="panel provider-card" key={name}>
+                      <article className="provider-card" key={name}>
                         <div className="provider-card-heading">
                           <span className="provider-icon">
-                            <CloudDownload size={23} />
+                            <CloudDownload size={21} />
                           </span>
                           <div className="provider-heading-text">
-                            <h3 title={name}>{name}</h3>
+                            <div className="provider-title-line">
+                              <h3 title={name}>{name}</h3>
+                              {(expired || compatible) && (
+                                <Badge tone={expired ? 'red' : 'purple'}>
+                                  {expired ? '已到期' : '内置'}
+                                </Badge>
+                              )}
+                            </div>
                             <span className="muted">
                               {provider.vehicleType || provider.type} · {provider.proxies.length}{' '}
                               个节点
                             </span>
                           </div>
-                          <Badge tone={expired ? 'red' : 'purple'}>
-                            {expired ? '已到期' : compatible ? '内置' : provider.vehicleType}
-                          </Badge>
                         </div>
-                        {subscription ? (
-                          <>
-                            <div className="provider-quota">
-                              <div>
-                                <span className="muted">已用流量</span>
-                                <strong>
-                                  {bytes(used)}
-                                  {hasQuota && <small> / {bytes(subscription.Total)}</small>}
-                                </strong>
+                        <div className="provider-usage">
+                          {subscription ? (
+                            <>
+                              <div className="provider-quota">
+                                <div>
+                                  <span className="muted">已用流量</span>
+                                  <strong>
+                                    {bytes(used)}
+                                    {hasQuota && <small> / {bytes(subscription.Total)}</small>}
+                                  </strong>
+                                </div>
+                                {hasQuota && (
+                                  <span
+                                    className={percent >= 90 ? 'provider-quota-warning' : 'muted'}
+                                  >
+                                    {percent.toFixed(1)}%
+                                  </span>
+                                )}
                               </div>
                               {hasQuota && (
-                                <span
-                                  className={percent >= 90 ? 'provider-quota-warning' : 'muted'}
+                                <div
+                                  className={`progress-track provider-progress${percent >= 90 ? ' is-warning' : ''}`}
+                                  role="progressbar"
+                                  aria-label={`${name} 已用流量`}
+                                  aria-valuenow={Math.round(percent)}
+                                  aria-valuemin={0}
+                                  aria-valuemax={100}
                                 >
-                                  {percent.toFixed(1)}%
-                                </span>
+                                  <div className="progress-fill" style={{ width: `${percent}%` }} />
+                                </div>
                               )}
-                            </div>
-                            {hasQuota && (
-                              <div
-                                className={`progress-track provider-progress${percent >= 90 ? ' is-warning' : ''}`}
-                                role="progressbar"
-                                aria-label={`${name} 已用流量`}
-                                aria-valuenow={Math.round(percent)}
-                                aria-valuemin={0}
-                                aria-valuemax={100}
-                              >
-                                <div className="progress-fill" style={{ width: `${percent}%` }} />
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <p className="provider-no-quota muted">此来源未提供流量用量</p>
-                        )}
+                            </>
+                          ) : (
+                            <p className="provider-no-quota muted">此来源未提供流量用量</p>
+                          )}
+                        </div>
                         <div className="provider-info">
                           <span>
                             <CalendarClock size={14} />
@@ -436,37 +442,38 @@ export default function Providers() {
                             <Check size={14} />
                             {healthy} / {provider.proxies.length} 可用
                           </span>
-                        </div>
-                        <button className="button provider-browse" onClick={() => setDetails(name)}>
-                          <List size={16} />
-                          查看节点<Badge>{provider.proxies.length}</Badge>
-                        </button>
-                        <div className="provider-card-footer">
                           <span className="resource-subline">
                             {compatible ? '随主配置更新' : relativeDate(provider.updatedAt)}
                           </span>
-                          <div className="provider-actions">
-                            <button
-                              className="icon-button"
-                              aria-label={`检查 ${name} 的节点健康状态`}
-                              disabled={!!working}
-                              onClick={() => void providerAction(name, 'health')}
-                            >
-                              <Activity size={17} className={working === 'health' ? 'spin' : ''} />
-                            </button>
-                            <button
-                              className="button small"
-                              disabled={!!working || compatible}
-                              title={compatible ? '内置代理集随主配置更新' : '刷新该来源的节点'}
-                              onClick={() => void providerAction(name, 'update')}
-                            >
-                              <ArrowDownToLine
-                                size={14}
-                                className={working === 'update' ? 'spin' : ''}
-                              />
-                              {working ? '处理中…' : '更新'}
-                            </button>
-                          </div>
+                        </div>
+                        <div className="provider-actions">
+                          <button
+                            className="button small provider-browse"
+                            onClick={() => setDetails(name)}
+                          >
+                            <List size={15} />
+                            查看节点
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={`检查 ${name} 的节点健康状态`}
+                            disabled={!!working}
+                            onClick={() => void providerAction(name, 'health')}
+                          >
+                            <Activity size={17} className={working === 'health' ? 'spin' : ''} />
+                          </button>
+                          <button
+                            className="button small"
+                            disabled={!!working || compatible}
+                            title={compatible ? '内置代理集随主配置更新' : '刷新该来源的节点'}
+                            onClick={() => void providerAction(name, 'update')}
+                          >
+                            <ArrowDownToLine
+                              size={14}
+                              className={working === 'update' ? 'spin' : ''}
+                            />
+                            {working ? '处理中…' : '更新'}
+                          </button>
                         </div>
                       </article>
                     );

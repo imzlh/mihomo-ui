@@ -1,6 +1,10 @@
 .logs-panel {
   min-width: 0;
   overflow: hidden;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
 }
 
 .logs-toolbar,
@@ -9,7 +13,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 16px 20px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -76,7 +80,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 4px 12px;
+  padding: 4px 0;
 }
 
 .logs-panel .log-row {
@@ -86,7 +90,6 @@
   gap: 10px;
   padding: 9px 8px;
   border-bottom: 1px solid var(--border);
-  border-radius: 5px;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -140,7 +143,7 @@
 }
 
 .logs-footer {
-  padding: 13px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 11px;
@@ -171,8 +174,8 @@
   .logs-toolbar,
   .logs-selection-toolbar,
   .logs-footer {
-    padding-right: 12px;
-    padding-left: 12px;
+    padding-right: 0;
+    padding-left: 0;
   }
 
   .logs-filters {

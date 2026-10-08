@@ -33,6 +33,8 @@
 }
 .profile-library-actions .button {
   font-size: 12px;
+  border-color: transparent;
+  background: transparent;
 }
 .profile-batch-toolbar {
   display: flex;
@@ -220,38 +222,43 @@
 }
 .profiles-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 24px;
   align-items: start;
+  border-top: 1px solid var(--border);
 }
 .profile-list {
   display: grid;
-  gap: 12px;
+  gap: 0;
   min-width: 0;
   max-height: calc(100vh - 290px);
   overflow: auto;
-  padding: 2px;
+  padding: 12px 16px 12px 0;
+  border-right: 1px solid var(--border);
 }
 .profile-card {
   display: grid;
   width: 100%;
-  gap: 12px;
-  padding: 17px;
+  gap: 7px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
   text-align: left;
   cursor: pointer;
   color: var(--text);
   font: inherit;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
+  transition: background 0.15s;
 }
 .profile-card:hover {
-  border-color: var(--accent);
+  background: var(--subtle);
 }
 .profile-card.is-selected {
-  border-color: var(--accent);
+  border-bottom-color: transparent;
+  border-radius: 5px;
   background: var(--accent-soft, #f5f2ff);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: inset 2px 0 var(--accent);
 }
 .profile-card:focus-visible {
   outline: 2px solid var(--accent);
@@ -269,10 +276,8 @@
   flex: none;
 }
 .profile-file-icon {
-  width: 35px;
-  height: 37px;
-  border-radius: 9px;
-  background: var(--subtle);
+  width: 22px;
+  height: 24px;
   color: var(--accent);
   display: grid;
   place-items: center;
@@ -312,7 +317,7 @@
 .profile-detail {
   min-width: 0;
   overflow: hidden;
-  padding: 23px;
+  padding: 20px 0 0;
 }
 .profile-detail-heading {
   display: flex;
@@ -342,7 +347,7 @@
   color: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
 }
 .profile-applied {
   display: flex;
@@ -355,16 +360,19 @@
 .profile-metadata {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 28px;
-  margin: 20px 0;
+  gap: 10px 24px;
+  margin: 16px 0;
 }
 .profile-metadata > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .profile-metadata dt {
+  flex: none;
   font-size: 10px;
   color: var(--muted);
-  margin-bottom: 6px;
 }
 .profile-metadata dd {
   margin: 0;
@@ -383,11 +391,17 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 7px;
-  padding: 14px 0;
+  padding: 10px 0;
   border-top: 1px solid var(--border);
 }
 .profile-actions .button {
   font-size: 11px;
+  border-color: transparent;
+  background: transparent;
+}
+.profile-actions .button:hover,
+.profile-library-actions .button:hover {
+  background: var(--subtle);
 }
 .profile-delete {
   margin-left: auto;
@@ -398,10 +412,10 @@
 }
 .profile-code {
   margin: 0;
-  padding: 18px;
+  padding: 16px;
   background: var(--subtle);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  border: 0;
+  border-radius: 6px;
   font:
     12px/1.8 ui-monospace,
     SFMono-Regular,
@@ -544,7 +558,7 @@
     gap: 14px;
   }
   .profile-detail {
-    padding: 18px;
+    padding: 18px 0 0;
   }
 }
 @media (max-width: 760px) {
@@ -554,10 +568,14 @@
   .profile-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-height: 280px;
+    padding: 12px 0;
+    gap: 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
   .profile-card {
     padding: 13px;
-    gap: 10px;
+    gap: 7px;
   }
   .profiles-overview {
     flex-wrap: wrap;
@@ -600,7 +618,7 @@
     -webkit-line-clamp: 1;
   }
   .profile-detail {
-    padding: 16px;
+    padding: 0;
   }
   .profile-detail h2 {
     font-size: 18px;

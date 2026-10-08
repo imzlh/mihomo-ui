@@ -458,7 +458,7 @@ test('deferred multi-file reads are discarded after leaving, changing controller
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await navigate(page, '配置');
   await startRound();
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const connection = page.getByRole('dialog', { name: '连接到 Mihomo', exact: true });
   await connection.getByLabel('控制器地址', { exact: false }).fill(otherController);
   await connection.getByRole('button', { name: '连接内核', exact: true }).click();

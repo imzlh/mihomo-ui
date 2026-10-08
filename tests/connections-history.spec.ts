@@ -141,7 +141,7 @@ async function mockConnections(page: Page, initialConnections: Connection[]) {
 }
 
 async function connect(page: Page, controller = firstController, remember = false) {
-  await page.locator('.backend-card').click();
+  await page.getByRole('button', { name: '切换内核', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('控制器地址', { exact: false }).fill(controller);
   await dialog.getByRole('checkbox').setChecked(remember);

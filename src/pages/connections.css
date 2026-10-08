@@ -1,20 +1,19 @@
 .connections-page .resource-stat {
-  padding: 16px 20px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 .connections-page .resource-stat strong {
   font-size: 22px;
 }
 .connections-toolbar {
-  padding: 14px 18px;
+  padding: 12px 0;
   gap: 12px;
 }
 .connection-tabs {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 9px;
-  background: var(--surface-hover, #f5f3fa);
+  gap: 14px;
+  padding: 0;
 }
 .connection-tabs button {
   display: flex;
@@ -23,17 +22,16 @@
   border: 0;
   background: transparent;
   color: var(--muted, #92909e);
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 9px 0;
+  border-bottom: 2px solid transparent;
   font: inherit;
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 .connection-tabs button.is-active {
-  background: var(--surface, #fff);
   color: var(--accent, #7764e8);
-  box-shadow: 0 1px 5px #23104a0a;
+  border-bottom-color: var(--accent);
 }
 .connection-tabs button > span {
   font-size: 10px;
@@ -57,8 +55,8 @@
   flex-shrink: 0;
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--subtle);
+  border-radius: 6px;
 }
 .connection-view-toggle button {
   display: inline-flex;
@@ -200,8 +198,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--subtle);
+  border-radius: 3px;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.45;
@@ -303,13 +301,14 @@
 }
 @media (max-width: 680px) {
   .connections-page .resource-stat {
-    padding: 13px 10px;
+    padding-top: 2px;
+    padding-bottom: 2px;
   }
   .connections-page .resource-stat strong {
     font-size: 18px;
   }
   .connections-toolbar {
-    padding: 12px;
+    padding: 12px 0;
   }
   .connection-filter-actions {
     width: 100%;
@@ -373,7 +372,7 @@
 }
 @media (max-width: 390px) {
   .connection-tabs button {
-    padding: 7px 8px;
+    padding: 8px 0;
     gap: 5px;
   }
   .connection-column-options {

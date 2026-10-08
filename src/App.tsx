@@ -1,12 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import {
   Activity,
   ArrowDown,
   ArrowUp,
   Box,
-  Cable,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   Files,
@@ -27,6 +25,7 @@ import {
 import { useMihomo } from './state/mihomo';
 import { bytes } from './lib/format';
 import { ConnectionDialog } from './components/ConnectionDialog';
+import { KernelSwitcher } from './components/KernelSwitcher';
 import { TrafficChart } from './components/TrafficChart';
 import { Toasts } from './components/ui';
 import Home from './pages/Home';
@@ -91,12 +90,24 @@ function useTheme() {
 export function App() {
   const state = useMihomo();
   const [connectOpen, setConnectOpen] = useState(false);
+  const connectTriggerRef = useRef<HTMLElement | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const { dark, toggle } = useTheme();
   const location = useLocation();
   useEffect(() => {
     setNavOpen(false);
   }, [location.pathname]);
+  useEffect(() => {
+    if (!connectOpen) {
+      connectTriggerRef.current?.focus();
+      connectTriggerRef.current = null;
+    }
+  }, [connectOpen]);
+  function openConnectionDialog() {
+    connectTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConnectOpen(true);
+  }
   const page = links.find((link) => link.path === location.pathname);
   return (
     <div className="app-shell">
@@ -108,15 +119,7 @@ export function App() {
         />
       )}
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
-        <NavLink className="brand" to="/">
-          <img src="./favicon.svg" width="39" height="39" alt="" />
-          <div>
-            <strong>
-              mihomo<span>verge</span>
-            </strong>
-            <small>Web 控制面板</small>
-          </div>
-        </NavLink>
+        <KernelSwitcher />
         <nav className="navigation" aria-label="主导航">
           {links.map(({ path, label, icon: Icon, section }) => (
             <div key={path}>
@@ -156,31 +159,8 @@ export function App() {
               </span>
             </div>
           </div>
-          <button className="backend-card" onClick={() => setConnectOpen(true)}>
-            <span className={`backend-icon ${state.connected ? 'online' : ''}`}>
-              <Cable size={18} />
-            </span>
-            <span>
-              <strong>
-                {state.demo ? '演示内核' : state.connected ? 'Mihomo 内核' : '连接内核'}
-              </strong>
-              <small>
-                <i className={`status-dot ${state.connected ? '' : 'offline'}`} />
-                {state.demo
-                  ? '本地演示'
-                  : state.status === 'connecting'
-                    ? '正在连接…'
-                    : state.connected
-                      ? '已连接'
-                      : '未连接'}
-              </small>
-            </span>
-            <ChevronDown size={15} />
-          </button>
           <div className="sidebar-footer">
-            <span>
-              WEB UI <span className="version-dot">·</span> v0.1.0
-            </span>
+            <span>WEB UI · v0.1.0</span>
             <a
               href="https://github.com/MetaCubeX/mihomo"
               target="_blank"
@@ -237,7 +217,7 @@ export function App() {
                 <Radio size={15} />
                 正在浏览演示数据，操作不会影响实际网络。
               </span>
-              <button onClick={() => setConnectOpen(true)}>
+              <button onClick={openConnectionDialog}>
                 连接我的内核 <ChevronRight size={14} />
               </button>
             </div>
@@ -245,7 +225,7 @@ export function App() {
           {state.status === 'error' && (
             <div className="error-note connection-error">
               <span>{state.error}</span>
-              <button className="button small" onClick={() => setConnectOpen(true)}>
+              <button className="button small" onClick={openConnectionDialog}>
                 检查连接
               </button>
             </div>
@@ -262,7 +242,7 @@ export function App() {
             }
           >
             <Routes>
-              <Route path="/" element={<Home onConnect={() => setConnectOpen(true)} />} />
+              <Route path="/" element={<Home onConnect={openConnectionDialog} />} />
               <Route path="/proxies" element={<Proxies />} />
               <Route path="/providers" element={<Providers />} />
               <Route path="/profiles" element={<Profiles />} />
@@ -274,13 +254,6 @@ export function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
-          <footer className="content-footer">
-            <span>让每一次连接，都恰到好处。</span>
-            <span>
-              <span className="footer-dot" />
-              Powered by Mihomo
-            </span>
-          </footer>
         </main>
       </div>
       {connectOpen && <ConnectionDialog onClose={() => setConnectOpen(false)} />}

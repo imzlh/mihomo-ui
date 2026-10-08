@@ -472,7 +472,7 @@ export default function Proxies() {
                   group.all?.some((name) => isProxyDelayPending(delayState, name)) ?? false;
                 return (
                   <section
-                    className={`panel proxy-group${expanded ? ' is-open' : ''}`}
+                    className={`proxy-group${expanded ? ' is-open' : ''}`}
                     key={group.name}
                     aria-label={`${group.name} 代理组`}
                   >

@@ -26,7 +26,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   Wifi,
-  Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useMihomo } from '../state/mihomo';
@@ -197,7 +196,7 @@ function ProxyExitCard({
   }
 
   return (
-    <section className="panel current-proxy-panel home-detail-card">
+    <section className="panel home-section current-proxy-panel home-detail-card">
       <div className="panel-header">
         <div className="panel-title">
           <Wifi size={18} />
@@ -288,10 +287,7 @@ function ProxyExitCard({
             </label>
           )}
           <div className="home-exit-summary">
-            <span className="proxy-avatar">
-              <Zap size={21} />
-            </span>
-            <div>
+            <div className="home-exit-identity">
               <span className="home-field-caption">{isDirect ? '当前出站' : '最终出口'}</span>
               <strong title={leaf?.name ?? route.reason}>
                 {leaf?.name ??
@@ -305,6 +301,23 @@ function ProxyExitCard({
                 {source.reason ??
                   (leaf ? [leaf.type, providerName].filter(Boolean).join(' · ') : route.reason)}
               </span>
+            </div>
+            <div className="home-exit-delay">
+              <span className="home-field-caption">内核延迟</span>
+              <div className="home-row-actions">
+                <Badge tone={failed ? 'red' : delayTone}>
+                  {testing ? '测试中' : failed ? '测试失败' : latencyLabel(delay)}
+                </Badge>
+                <button
+                  className="icon-button"
+                  title={source.reason ?? `测试当前出口 · ${testUrl}`}
+                  aria-label="测试当前出口延迟"
+                  disabled={!canTest}
+                  onClick={() => void testExit()}
+                >
+                  <RefreshCw size={15} className={testing ? 'spin' : ''} />
+                </button>
+              </div>
             </div>
           </div>
           {route.chain.length > 2 && (
@@ -320,23 +333,6 @@ function ProxyExitCard({
               ))}
             </div>
           )}
-          <div className="home-card-row">
-            <span>内核延迟</span>
-            <div className="home-row-actions">
-              <Badge tone={failed ? 'red' : delayTone}>
-                {testing ? '测试中' : failed ? '测试失败' : latencyLabel(delay)}
-              </Badge>
-              <button
-                className="icon-button"
-                title={source.reason ?? `测试当前出口 · ${testUrl}`}
-                aria-label="测试当前出口延迟"
-                disabled={!canTest}
-                onClick={() => void testExit()}
-              >
-                <RefreshCw size={15} className={testing ? 'spin' : ''} />
-              </button>
-            </div>
-          </div>
           {preferences.autoDelay && (
             <span className="home-auto-delay-note">
               {state.demo
@@ -415,7 +411,7 @@ function ProviderSummaryCard() {
   }
 
   return (
-    <section className="panel subscription-panel home-detail-card">
+    <section className="panel home-section subscription-panel home-detail-card">
       <div className="panel-header">
         <div className="panel-title">
           <Box size={18} />
@@ -429,9 +425,7 @@ function ProviderSummaryCard() {
       {state.connected && provider ? (
         <div className="home-card-content">
           <label className="home-select-field">
-            <span>
-              查看代理集<small>共 {providers.length} 个</small>
-            </span>
+            <span>查看代理集</span>
             <select
               className="field"
               aria-label="首页代理集"
@@ -455,9 +449,6 @@ function ProviderSummaryCard() {
             </select>
           </label>
           <div className="home-provider-summary">
-            <span className="subscription-avatar">
-              <Layers3 size={21} />
-            </span>
             <div>
               <strong>{provider.proxies.length} 个节点</strong>
               <span>
@@ -804,10 +795,10 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
             .map((stat) => (
               <article className="stat-card" key={stat.label}>
                 <div className="stat-header">
-                  <span>{stat.label}</span>
                   <span className={`stat-icon ${stat.color}`}>
-                    <stat.icon size={19} />
+                    <stat.icon size={15} />
                   </span>
+                  <span>{stat.label}</span>
                 </div>
                 <div className="stat-value">
                   {stat.value}
@@ -824,7 +815,7 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
       {(cards.traffic || cards.mode) && (
         <div className="overview-main-grid">
           {cards.traffic && (
-            <section className="panel traffic-panel">
+            <section className="panel home-section traffic-panel">
               <div className="panel-header">
                 <div className="panel-title">
                   <Activity size={18} />
@@ -860,23 +851,25 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
                 </div>
               </div>
               <TrafficChart data={state.history} style={preferences.chartStyle} paused={!visible} />
-              <div className="traffic-summary">
-                <span>
-                  <ArrowDown size={13} />
-                  下载总量{' '}
-                  <strong>{state.connected ? bytes(state.snapshot.downloadTotal) : '—'}</strong>
-                </span>
-                <span>
-                  <ArrowUp size={13} />
-                  上传总量{' '}
-                  <strong>{state.connected ? bytes(state.snapshot.uploadTotal) : '—'}</strong>
-                </span>
-                <span className="muted">内核累计</span>
-              </div>
+              {!cards.stats && (
+                <div className="traffic-summary">
+                  <span>
+                    <ArrowDown size={13} />
+                    下载总量{' '}
+                    <strong>{state.connected ? bytes(state.snapshot.downloadTotal) : '—'}</strong>
+                  </span>
+                  <span>
+                    <ArrowUp size={13} />
+                    上传总量{' '}
+                    <strong>{state.connected ? bytes(state.snapshot.uploadTotal) : '—'}</strong>
+                  </span>
+                  <span className="muted">内核累计</span>
+                </div>
+              )}
             </section>
           )}
           {cards.mode && (
-            <section className="panel mode-panel">
+            <section className="panel home-section mode-panel">
               <div className="panel-header">
                 <div className="panel-title">
                   <Route size={18} />
@@ -884,27 +877,30 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
                 </div>
                 <Badge tone="purple">{state.config?.mode.toUpperCase() ?? 'OFFLINE'}</Badge>
               </div>
-              <div className="mode-options">
+              <div className="mode-options" role="group" aria-label="出站模式">
                 {modes.map(({ key, name, description, icon: Icon }) => (
                   <button
                     key={key}
                     className={`mode-option ${state.config?.mode === key ? 'selected' : ''}`}
+                    aria-pressed={state.config?.mode === key}
+                    title={description}
                     disabled={coreDisabled}
                     onClick={() => void changeMode(key)}
                   >
                     <span className="mode-icon">
-                      <Icon size={20} />
+                      <Icon size={17} />
                     </span>
-                    <span>
-                      <strong>{name}</strong>
-                      <small>{description}</small>
-                    </span>
+                    <strong>{name}</strong>
                     <span className="mode-check">
                       {state.config?.mode === key && <Check size={12} strokeWidth={3} />}
                     </span>
                   </button>
                 ))}
               </div>
+              <p className="mode-description">
+                {modes.find((mode) => mode.key === state.config?.mode)?.description ??
+                  '连接内核后选择请求的出站方式'}
+              </p>
               <div className="mode-footnote">
                 <ShieldCheck size={14} />
                 {state.demo ? '仅影响演示配置' : '运行配置实时生效'}
@@ -925,7 +921,7 @@ export default function Home({ onConnect }: { onConnect: () => void }) {
           )}
           {cards.providers && <ProviderSummaryCard key={`providers:${scope}`} />}
           {cards.core && (
-            <section className="panel quick-panel home-detail-card">
+            <section className="panel home-section quick-panel home-detail-card">
               <div className="panel-header">
                 <div className="panel-title">
                   <CircuitBoard size={18} />
