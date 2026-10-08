@@ -77,7 +77,7 @@ function restoreProfile(): BackendProfile | null {
 function useMihomoState() {
   const queryCache = useQueryClient();
   const [session, setSession] = useState(() => ({ profile: restoreProfile(), id: 0 }));
-  const [demo, setDemo] = useState(false);
+  const [demo, setDemo] = useState(import.meta.env.VITE_DEMO_MODE === 'true');
   const preferenceScope = demo ? 'demo' : (session.profile?.url ?? 'offline');
   const storedCloseOnSwitch = useMemo(() => readCloseOnSwitch(preferenceScope), [preferenceScope]);
   const [closePreference, setClosePreference] = useState({ scope: '', enabled: false });

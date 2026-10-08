@@ -44,7 +44,7 @@ export async function withProxyDelayProgress<T>({
           pending.delete(name);
           onResult(name, latest.delay);
         }
-      }
+      }                      
     } catch {
       // Transient polling errors leave the final group response authoritative.
     } finally {

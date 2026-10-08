@@ -28,6 +28,7 @@ import { ConnectionDialog } from './components/ConnectionDialog';
 import { KernelSwitcher } from './components/KernelSwitcher';
 import { TrafficChart } from './components/TrafficChart';
 import { Toasts } from './components/ui';
+import { version as appVersion } from '../package.json';
 import Home from './pages/Home';
 
 const Proxies = lazy(() => import('./pages/Proxies'));
@@ -160,7 +161,7 @@ export function App() {
             </div>
           </div>
           <div className="sidebar-footer">
-            <span>WEB UI · v0.1.0</span>
+            <span>WEB UI · v{appVersion}</span>
             <a
               href="https://github.com/MetaCubeX/mihomo"
               target="_blank"

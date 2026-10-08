@@ -87,6 +87,8 @@ HTTP 请求使用 `Authorization: Bearer <secret>`。浏览器 WebSocket 不能�
 
 ## 部署到 Mihomo
 
+可以从 [GitHub Releases](https://github.com/imzlh/mihomo-ui/releases/latest) 下载 `mihomo-ui.zip`。压缩包根目录即为网页文件，将其解压到内核的 `ui/` 目录即可。
+
 将 `dist/` 中的内容放入 Mihomo 工作目录下的 `ui/` 文件夹，并配置：
 
 ```yaml
@@ -102,3 +104,26 @@ external-controller-cors:
 重启 Mihomo 后访问 `http://127.0.0.1:9090/ui/`。开发服务器与控制器跨源时，需要将页面的实际 Origin 加入 `allow-origins`；例如开发页面使用 `http://127.0.0.1:5173`，也需要单独添加该地址。`allow-private-network` 用于允许受支持浏览器的私有网络访问预检，不会绕过浏览器的本地网络权限。
 
 示例控制器仅监听本机。若从其他设备访问，应使用可访问的控制器地址，并相应配置监听地址、访问限制和 Secret。HTTPS 页面应连接 HTTPS / WSS 控制器，例如通过支持 WebSocket 转发的反向代理提供同源地址；HTTPS 页面直接请求 HTTP / WS 控制器可能被浏览器以混合内容拦截。
+
+## 自动发布
+
+仓库提供 GitHub Actions 发布流程，使用 Node.js 24 和 `package.json` 指定的 pnpm 版本，按锁文件安装依赖并构建，不运行测试。
+
+- **GitHub Releases**：推送 `v*` 标签后，自动构建普通版本并上传 `mihomo-ui.zip`。文件直接包含 `index.html` 和 `assets/`，没有额外的 `dist/` 层。
+- **GitHub Pages**：推送 `main` 后，自动更新[在线演示](https://imzlh.github.io/mihomo-ui/)。该构建设置 `VITE_DEMO_MODE=true`，打开即进入演示模式；下载包使用普通构建。
+
+首次部署 Pages 时，在仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。后续推送会自动部署，也可以在 **Actions** 中手动执行 Pages 工作流。
+
+发布新版本时，先更新 `package.json` 的 `version` 并提交，再推送同版本的标签，例如：
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+内核也可以使用最新正式版安装包作为面板更新来源：
+
+```yaml
+external-ui: ./ui
+external-ui-url: https://github.com/imzlh/mihomo-ui/releases/latest/download/mihomo-ui.zip
+```
