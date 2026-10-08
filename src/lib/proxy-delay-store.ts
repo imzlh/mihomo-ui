@@ -27,6 +27,9 @@ export function createProxyDelayStore() {
     groups: new Map(),
   };
   const listeners = new Set<() => void>();
+  const groupMembers = new Map<string, readonly string[]>();
+  const isLocked = (name: string) =>
+    state.nodes.has(name) || [...groupMembers.values()].some((members) => members.includes(name));
   const publish = (next: ProxyDelaySnapshot) => {
     state = next;
     listeners.forEach((listener) => listener());
@@ -40,7 +43,7 @@ export function createProxyDelayStore() {
       };
     },
     beginNode(name: string): boolean {
-      if (isProxyDelayPending(state, name)) return false;
+      if (isLocked(name)) return false;
       publish({ ...state, nodes: new Set(state.nodes).add(name) });
       return true;
     },
@@ -54,10 +57,22 @@ export function createProxyDelayStore() {
       });
     },
     beginGroup(group: string, members: readonly string[]): boolean {
-      if (state.groups.has(group) || members.some((name) => isProxyDelayPending(state, name)))
-        return false;
+      if (state.groups.has(group) || members.some(isLocked)) return false;
+      groupMembers.set(group, [...members]);
       publish({ ...state, groups: new Map(state.groups).set(group, [...members]) });
       return true;
+    },
+    finishGroupMember(group: string, name: string, result: ProxyDelayResult) {
+      const pending = state.groups.get(group);
+      if (!groupMembers.get(group)?.includes(name) || !pending) return;
+      publish({
+        ...state,
+        groups: new Map(state.groups).set(
+          group,
+          pending.filter((member) => member !== name),
+        ),
+        results: new Map(state.results).set(proxyDelayKey(group, name), result),
+      });
     },
     finishGroup(
       group: string,
@@ -65,11 +80,13 @@ export function createProxyDelayStore() {
       historyKeys: ReadonlyMap<string, string>,
     ) {
       const results = new Map(state.results);
-      for (const name of state.groups.get(group) ?? []) {
+      for (const name of groupMembers.get(group) ?? []) {
         const key = proxyDelayKey(group, name);
+        if (!delays && !state.groups.get(group)?.includes(name)) continue;
         if (delays && delays[name] === undefined) results.delete(key);
         else results.set(key, { delay: delays?.[name], historyKey: historyKeys.get(name) ?? '' });
       }
+      groupMembers.delete(group);
       const groups = new Map(state.groups);
       groups.delete(group);
       publish({ ...state, groups, results });

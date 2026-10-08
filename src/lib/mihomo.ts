@@ -19,7 +19,7 @@ export type StreamStatus = 'connecting' | 'open' | 'closed';
 export type StreamPath = 'traffic' | 'memory' | 'connections' | 'logs';
 
 const DEFAULT_TIMEOUT = 12_000;
-const DEFAULT_TEST_URL = 'https://www.gstatic.com/generate_204';
+export const DEFAULT_TEST_URL = 'https://www.gstatic.com/generate_204';
 
 export class MihomoApiError extends Error {
   readonly status: number | undefined;

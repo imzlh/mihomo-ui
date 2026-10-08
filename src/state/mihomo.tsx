@@ -10,10 +10,11 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MihomoClient, normalizeBackendUrl } from '../lib/mihomo';
+import { DEFAULT_TEST_URL, MihomoClient, normalizeBackendUrl } from '../lib/mihomo';
 import { maintenanceStore } from '../lib/core-maintenance';
 import { connectionsForProxySwitch, switchProxyWithCleanup } from '../lib/proxy-switch';
 import { mergeProxyNodes } from '../lib/proxy-nodes';
+import { withProxyDelayProgress } from '../lib/proxy-delay-progress';
 import { PREFERENCES_CHANGED } from '../lib/preference-events';
 import {
   createConnectionHistory,
@@ -26,7 +27,9 @@ import type {
   LogEntry,
   Memory,
   MihomoConfigPatch,
+  ProxiesResponse,
   ProxyNode,
+  ProxyProvider,
   Traffic,
   Version,
 } from '../lib/types';
@@ -493,7 +496,10 @@ function useMihomoState() {
       activeSelections.current.delete(actionKey);
     }
   };
-  const testDelay = async (group: string): Promise<Record<string, number> | undefined> => {
+  const testDelay = async (
+    group: string,
+    onResult?: (name: string, delay: number, historyKey: string) => void,
+  ): Promise<Record<string, number> | undefined> => {
     if (demo) {
       setProxiesDemo((current) => {
         const node = current[group];
@@ -511,12 +517,46 @@ function useMihomoState() {
       let measured: Record<string, number> | undefined;
       const success = await runAction(async () => {
         const node = proxies[group];
-        measured = await client.groupDelay(
-          group,
-          node?.testUrl || undefined,
-          5_000,
-          node?.expectedStatus || undefined,
-        );
+        const members = node?.all ?? [];
+        const publish = (name: string, delay: number) => {
+          if (currentActionSession.current !== actionSession) return;
+          const currentNodes = mergeProxyNodes(
+            queryCache.getQueryData<ProxiesResponse>([...key, 'proxies'])?.proxies ?? {},
+            queryCache.getQueryData<Record<string, ProxyProvider>>([...key, 'providers']) ?? {},
+          );
+          const last = currentNodes[name]?.history.at(-1);
+          onResult?.(name, delay, last ? `${last.time}:${last.delay}` : '');
+        };
+        const measure = () =>
+          client.groupDelay(
+            group,
+            node?.testUrl || undefined,
+            5_000,
+            node?.expectedStatus || undefined,
+          );
+        const needsProviders = members.some((name) => !proxiesQuery.data?.proxies[name]);
+        measured = onResult
+          ? await withProxyDelayProgress({
+              members,
+              url: node?.testUrl || DEFAULT_TEST_URL,
+              readNodes: async (signal) => {
+                const [core, providers] = await Promise.all([
+                  client.proxies(signal),
+                  needsProviders ? client.providers(signal) : Promise.resolve({}),
+                ]);
+                if (!signal.aborted && currentActionSession.current === actionSession) {
+                  queryCache.setQueryData([...key, 'proxies'], core);
+                  if (needsProviders) queryCache.setQueryData([...key, 'providers'], providers);
+                }
+                return mergeProxyNodes(core.proxies, providers);
+              },
+              measure,
+              onResult: publish,
+              isCurrent: () => currentActionSession.current === actionSession,
+            })
+          : await measure();
+        if (currentActionSession.current === actionSession)
+          for (const [name, delay] of Object.entries(measured)) publish(name, delay);
       }, '延迟测试完成');
       return success ? measured : undefined;
     }

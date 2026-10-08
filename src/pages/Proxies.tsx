@@ -257,7 +257,13 @@ export default function Proxies() {
       const historyKeys = new Map(members.map((member) => [member, historyKey(proxies[member])]));
       let delays: Record<string, number> | undefined;
       try {
-        delays = await testDelay(group.name);
+        delays = await testDelay(group.name, (name, delay, currentHistoryKey) => {
+          historyKeys.set(name, currentHistoryKey);
+          delayStore.finishGroupMember(group.name, name, {
+            delay,
+            historyKey: currentHistoryKey,
+          });
+        });
       } finally {
         delayStore.finishGroup(group.name, delays, historyKeys);
       }

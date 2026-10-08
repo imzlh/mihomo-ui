@@ -1,0 +1,77 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build UI archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js and pnpm
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@24
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build UI
+        run: pnpm build
+
+      - name: Package UI
+        working-directory: dist
+        run: zip -r ../mihomo-ui.zip .
+
+      - name: Upload UI archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: mihomo-ui-release
+          path: mihomo-ui.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download UI archive
+        uses: actions/download-artifact@v8
+        with:
+          name: mihomo-ui-release
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" mihomo-ui.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" mihomo-ui.zip \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
